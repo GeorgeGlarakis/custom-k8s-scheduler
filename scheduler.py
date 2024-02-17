@@ -3,16 +3,25 @@ from kubernetes.client import api_client
 from kubernetes.client import Configuration
 from kubernetes.client import CoreV1Api
 from kubernetes.client import V1Pod
+from kubernetes import config
 import time
 
 class CustomScheduler:
     def __init__(self):
         # Set up Kubernetes API client
-        config = Configuration()
-        config.host = "https://your-k8s-api-server"
-        config.verify_ssl = False  # Adjust based on your security settings
-        api_client.Configuration.set_default(config)
+        # config = Configuration()
+        # config.host = "localhost"
+        # config.verify_ssl = False  # Adjust based on your security settings
+
+        try:
+            config.load_kube_config()
+        except FileNotFoundError as e:
+            print("Warning %s\n" % e)
+
+        # api_client.Configuration.set_default(config)
+
         self.api = CoreV1Api()
+
 
     def get_pending_pods(self):
         # Retrieve pending pods from the Kubernetes API
@@ -52,7 +61,16 @@ class CustomScheduler:
         pod.spec.node_name = node_name
         self.api.patch_namespaced_pod(name=pod.metadata.name, namespace=pod.metadata.namespace, body=pod)
 
+    def node_info(self):
+        response = self.api.list_node()
+
+        for node in response.items:
+            print("\nKubernetes Node Name is " + str(node.metadata.labels['kubernetes.io/hostname']))
+            print(" => Kubernetes Node Image is " + str(node.status.node_info.os_image))
+            for j in node.status.addresses:
+                print(" =>This Node is using address type " + str(j.type) + " for " + str(j.address))  
+
 if __name__ == "__main__":
     scheduler = CustomScheduler()
-    scheduler.schedule()
+    scheduler.node_info()
 
