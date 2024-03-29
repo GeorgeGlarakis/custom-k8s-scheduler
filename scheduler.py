@@ -5,6 +5,13 @@ from kubernetes.client import CoreV1Api
 from kubernetes.client import V1Pod
 from kubernetes import config
 import time
+# from kubernetes.client import models
+# from kubernetes.client import api_client
+# from kubernetes.client import Configuration
+# from kubernetes.client import CoreV1Api
+# from kubernetes.client import V1Pod
+from kubernetes import client, config
+import time, sys
 
 class CustomScheduler:
     def __init__(self):
@@ -21,6 +28,8 @@ class CustomScheduler:
         # api_client.Configuration.set_default(config)
 
         self.api = CoreV1Api()
+        self.api = client.CoreV1Api()
+
 
 
     def get_pending_pods(self):
