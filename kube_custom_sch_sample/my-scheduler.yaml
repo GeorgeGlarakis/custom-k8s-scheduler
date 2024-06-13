@@ -88,15 +88,15 @@ spec:
         livenessProbe:
           httpGet:
             path: /livez
-            port: 10249
-            scheme: HTTP
+            port: 10259
+            scheme: HTTPS
           initialDelaySeconds: 15
         name: kube-second-scheduler
         readinessProbe:
           httpGet:
             path: /readyz
-            port: 10249
-            scheme: HTTP
+            port: 10259
+            scheme: HTTPS
         resources:
           requests:
             cpu: '0.1'
