@@ -85,18 +85,18 @@ spec:
         - /usr/local/bin/kube-scheduler
         - --config=/etc/kubernetes/my-scheduler/my-scheduler-config.yaml
         image: docker.io/glarakis99/custom-k8s-scheduler:sample
-        # livenessProbe:
-        #   httpGet:
-        #     path: /healthz
-        #     port: 10249
-        #     scheme: HTTP
-        #   initialDelaySeconds: 15
+        livenessProbe:
+          httpGet:
+            path: /livez
+            port: 10249
+            scheme: HTTP
+          initialDelaySeconds: 15
         name: kube-second-scheduler
-        # readinessProbe:
-        #   httpGet:
-        #     path: /healthz
-        #     port: 10249
-        #     scheme: HTTP
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 10249
+            scheme: HTTP
         resources:
           requests:
             cpu: '0.1'
