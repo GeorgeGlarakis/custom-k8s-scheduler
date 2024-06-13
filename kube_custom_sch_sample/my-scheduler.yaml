@@ -92,11 +92,11 @@ spec:
             scheme: HTTP
           initialDelaySeconds: 15
         name: kube-second-scheduler
-        readinessProbe:
-          httpGet:
-            path: /healthz
-            port: 10249
-            scheme: HTTP
+        # readinessProbe:
+        #   httpGet:
+        #     path: /healthz
+        #     port: 10249
+        #     scheme: HTTP
         resources:
           requests:
             cpu: '0.1'
