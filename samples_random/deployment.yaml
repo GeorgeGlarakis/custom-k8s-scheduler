@@ -17,5 +17,5 @@ spec:
       serviceAccountName: test-sa
       containers:
       - name:  random-scheduler-pod
-        image: docker.io/glarakis99/custom-k8s-scheduler:sample-ran
+        image: docker.io/glarakis99/custom-k8s-scheduler:sample-rand
         imagePullPolicy: Always
