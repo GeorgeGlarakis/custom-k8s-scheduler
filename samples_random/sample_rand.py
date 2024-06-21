@@ -6,8 +6,8 @@ import json
 
 from kubernetes import client, config, watch
 
-config.load_kube_config()
-# config.load_incluster_config()
+# config.load_kube_config()
+config.load_incluster_config()
 v1=client.CoreV1Api()
 
 scheduler_name = "my-scheduler"
@@ -21,30 +21,30 @@ def nodes_available():
     
     return ready_nodes
 
-# def scheduler(name, node, namespace="default"):
-#     target=client.V1ObjectReference()
-#     target.kind="Node"
-#     target.apiVersion="v1"
-#     target.name=node
+def scheduler(name, node, namespace="default"):
+    target=client.V1ObjectReference()
+    target.kind="Node"
+    target.apiVersion="v1"
+    target.name=node
     
-#     meta=client.V1ObjectMeta()
-#     meta.name=name
+    meta=client.V1ObjectMeta()
+    meta.name=name
 
-#     body=client.V1Binding(target=target)
-#     body.metadata=meta
+    body=client.V1Binding(target=target)
+    body.metadata=meta
     
-#     return v1.create_namespaced_pod_binding(name, namespace, body)
+    return v1.create_namespaced_pod_binding(name, namespace, body)
 
-def scheduler(pod, node, namespace="default"):
-    print("Start Scheduling...")
-    body = {
-        "spec": {
-            "nodeName": node
-        }
-    }
+# def scheduler(pod, node, namespace="default"):
+#     print("Start Scheduling...")
+#     body = {
+#         "spec": {
+#             "nodeName": node
+#         }
+#     }
 
-    scheduler_status = v1.patch_namespaced_pod(name=pod.metadata.name, namespace=pod.metadata.namespace, body=body)
-    return scheduler_status
+#     scheduler_status = v1.patch_namespaced_pod(name=pod.metadata.name, namespace=pod.metadata.namespace, body=body)
+#     return scheduler_status
     
 
 def main():
