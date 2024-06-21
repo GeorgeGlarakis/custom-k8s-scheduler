@@ -24,14 +24,19 @@ def nodes_available():
 def scheduler(name, node, namespace="default"):
     target=client.V1ObjectReference()
     target.kind="Node"
-    target.apiVersion="v1"
+    target.api_version="v1"
     target.name=node
+    target.namespace=namespace
+
+    print(target)
     
     meta=client.V1ObjectMeta()
     meta.name=name
 
     body=client.V1Binding(target=target)
     body.metadata=meta
+
+    print(body)
     
     return v1.create_namespaced_pod_binding(name, namespace, body)
 
