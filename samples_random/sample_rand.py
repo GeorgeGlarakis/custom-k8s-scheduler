@@ -6,11 +6,11 @@ import json
 
 from kubernetes import client, config, watch
 
-config.load_kube_config()
-# config.load_incluster_config()
+# config.load_kube_config()
+config.load_incluster_config()
 v1=client.CoreV1Api()
 
-scheduler_name = "foobar"
+scheduler_name = "my-scheduler"
 
 def nodes_available():
     ready_nodes = []
