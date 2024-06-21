@@ -32,8 +32,6 @@ def scheduler(name, node, namespace="default"):
 
     body=client.V1Binding(target=target)
     body.metadata=meta
-
-    print(body)
     
     return v1.create_namespaced_pod_binding(name, namespace, body)
 
@@ -55,7 +53,7 @@ def main():
         if event['object'].status.phase == "Pending" and event['object'].spec.scheduler_name == scheduler_name:
             print("Try scheduling Pod: ", event['object'].metadata.name)
             try:
-                res = scheduler(event['object'], random.choice(nodes_available()))
+                res = scheduler(event['object'].metadata.name, random.choice(nodes_available()))
             except client.rest.ApiException as e:
                 print(json.loads(e.body)['message'])
                     
