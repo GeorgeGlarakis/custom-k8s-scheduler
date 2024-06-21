@@ -32,6 +32,8 @@ def scheduler(name, node, namespace="default"):
 
     body=client.V1Binding(target=target)
     body.metadata=meta
+
+    print(body)
     
     return v1.create_namespaced_pod_binding(name, namespace, body)
 
