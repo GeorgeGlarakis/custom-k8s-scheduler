@@ -1,0 +1,54 @@
+---
+- name: Initialize Nodes
+  hosts: master_node:worker_node
+  roles:
+    - role: kubernetes_init
+      tags: kube-init
+
+- name: Initialize Kubernetes in Master
+  hosts: master
+  vars:
+    - ansible_user: "glarakis"
+  tasks:
+    - name: Initialize Kubernetes Master Node
+      ansible.builtin.command: kubeadm init --pod-network-cidr=10.244.0.0/16
+      become: yes
+      ignore_errors: yes
+      args:
+        creates: /etc/kubernetes/admin.conf
+    - name: Create .kube directory
+      ansible.builtin.file:
+        path: /home/{{ ansible_user }}/.kube
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0755'
+    - name: Copy admin.conf to user's .kube directory
+      ansible.builtin.copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /home/{{ ansible_user }}/.kube/config
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0644'
+        remote_src: yes
+      become: yes
+    - name: Get kubeadm join command
+      shell: kubeadm token create --print-join-command
+      register: kubeadm_join_command_raw
+    - name: set join command
+      set_fact:
+        kubeadm_join_command: "{{ kubeadm_join_command_raw.stdout_lines[0] }}"
+
+- name: Initialize Kubernetes in Workers
+  hosts: worker_node
+  tasks:
+    - name: Join worker node to the Kubernetes cluster
+      become: yes
+      ansible.builtin.command: "{{ hostvars['master']['kubeadm_join_command'] }}"
+      when: hostvars['master']['kubeadm_join_command'] is defined
+
+- name: Apply Calico Kube Controller
+  hosts: master_node
+  tasks:
+    - name: Apply Calico Kube Controller in Master Node
+      ansible.builtin.command: kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/master/manifests/calico.yaml

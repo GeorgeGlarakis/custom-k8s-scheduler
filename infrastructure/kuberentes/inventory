@@ -1,0 +1,5 @@
+[master_node]
+master ansible_port=22 ansible_host=10.0.100.156
+
+[worker_node]
+10.0.100.157
