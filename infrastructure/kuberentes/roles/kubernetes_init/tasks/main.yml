@@ -1,0 +1,186 @@
+---
+- name: Disable the swap memory
+  block:
+  - name: Disable the swap memory
+    become: yes
+    shell: |
+      swapoff -a
+  - name: Disable SWAP in fstab
+    become: yes
+    replace:
+      path: /etc/fstab
+      regexp: '^([^#].*?\sswap\s+sw\s+.*)$'
+      replace: '# \1'
+
+- name: Install Requirements
+  ansible.builtin.apt:
+    name:
+      - apt-transport-https 
+      - ca-certificates
+      - curl
+      - gpg
+    state: present
+    update_cache: true
+  become: yes
+
+- name: Add Docker's Official GPG key
+  become: yes
+  block:
+  - name: Create directory /etc/apt/keyrings with permissions
+    ansible.builtin.file:
+      path: /etc/apt/keyrings
+      state: directory
+      mode: '0755'
+  - name: Download Docker GPG key
+    ansible.builtin.get_url:
+      url: https://download.docker.com/linux/ubuntu/gpg
+      dest: /etc/apt/keyrings/docker.asc
+      mode: '0644'
+  - name: Set permissions for Docker GPG key
+    ansible.builtin.file:
+      path: /etc/apt/keyrings/docker.asc
+      mode: '0644'
+  - name: Get the system architecture
+    ansible.builtin.command: dpkg --print-architecture
+    register: architecture_output
+  - name: Get the OS version codename
+    ansible.builtin.shell: . /etc/os-release && echo "$VERSION_CODENAME"
+    register: os_codename_output
+  - name: Add Docker repository to sources list
+    ansible.builtin.copy:
+      dest: /etc/apt/sources.list.d/docker.list
+      content: |
+        deb [arch={{ architecture_output.stdout }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ os_codename_output.stdout }} stable
+    register: dockerkey
+
+- name: Update apt cache
+  apt: 
+    update_cache: yes
+  when: dockerkey.changed
+  become: yes
+
+- name: Install Docker & Containerd
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+  become: yes
+
+- name: Download cni-plugins v1.4.1
+  become: yes
+  block:
+  - name: Download CNI plugins tar 
+    ansible.builtin.get_url:
+      url: https://github.com/containernetworking/plugins/releases/download/v1.4.1/cni-plugins-linux-amd64-v1.4.1.tgz
+      dest: /tmp/cni-plugins-linux-amd64-v1.4.1.tgz
+    register: cnitar
+  - name: Create directory /opt/cni/bin
+    ansible.builtin.file:
+      path: /opt/cni/bin
+      state: directory
+      mode: '0755'
+    when: cnitar.changed
+  - name: Extract CNI plugins tar
+    ansible.builtin.unarchive:
+      src: /tmp/cni-plugins-linux-amd64-v1.4.1.tgz
+      dest: /opt/cni/bin
+      remote_src: yes
+    when: cnitar.changed
+
+- name: Add Kubernetes GPG Key
+  become: yes
+  block:
+  - name: Ensure /etc/apt/keyrings directory exists
+    ansible.builtin.file:
+      path: /etc/apt/keyrings
+      state: directory
+      mode: '0755'
+  - name: Download Kubernetes GPG key
+    ansible.builtin.get_url:
+      url: https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key
+      dest: /tmp/k8s_release.key
+    register: k8s_key
+  - name: Dearmor K8s Release Key
+    ansible.builtin.shell: gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg /tmp/k8s_release.key
+    when: k8s_key.changed
+  - name: Add Kubernetes repository to sources list
+    ansible.builtin.copy:
+      dest: /etc/apt/sources.list.d/kubernetes.list
+      content: 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /'
+    register: kubekey
+    when: k8s_key.changed
+
+- name: Forwarding IPv4 and letting iptables see bridged traffic
+  become: yes
+  block:
+  - name: Create file to load kernel modules for Kubernetes
+    ansible.builtin.copy:
+      dest: /etc/modules-load.d/k8s.conf
+      content: |
+        overlay
+        br_netfilter
+  - name: Load kernel module overlay
+    ansible.builtin.modprobe:
+      name: overlay
+      state: present
+  - name: Load kernel module br_netfilter
+    ansible.builtin.modprobe:
+      name: br_netfilter
+      state: present
+  - name: Create sysctl configuration file for Kubernetes
+    ansible.builtin.copy:
+      dest: /etc/sysctl.d/k8s.conf
+      content: |
+        net.bridge.bridge-nf-call-iptables  = 1
+        net.bridge.bridge-nf-call-ip6tables = 1
+        net.ipv4.ip_forward                 = 1
+  - name: Apply sysctl parameters
+    ansible.builtin.command: sysctl --system
+
+- name: Update apt cache
+  apt: 
+    update_cache: yes
+  become: yes
+  when: kubekey.changed
+
+- name: Install Kubernetes
+  become: yes
+  block:
+  - name: Install Kubernetes tools
+    ansible.builtin.apt:
+      name:
+        - kubelet
+        - kubeadm
+        - kubectl
+        - kubernetes-cni
+      state: present
+  - name: Hold Kubernetes tools
+    ansible.builtin.dpkg_selections:
+      name: "{{ item }}"
+      selection: hold
+    loop:
+      - kubelet
+      - kubeadm
+      - kubectl
+      - kubernetes-cni
+
+- name: Edit /etc/containerd/config.toml
+  ansible.builtin.copy:
+    dest: /etc/containerd/config.toml
+    content: |
+      version = 2
+      [plugins."io.containerd.grpc.v1.cri"]
+          [plugins."io.containerd.grpc.v1.cri".containerd.runtimes]
+              [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+                  runtime_type = "io.containerd.runc.v2"
+                  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+                      SystemdCgroup = true
+  become: yes
+
+- name: Restart containerd
+  ansible.builtin.command: systemctl restart containerd
+  become: yes

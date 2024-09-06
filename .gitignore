@@ -160,3 +160,5 @@ cython_debug/
 #.idea/
 
 custom_k8s_scheduler/*
+.terraform*
+*.tfstate
