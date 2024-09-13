@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: code-deployment
+  labels:
+    app: code
+spec:
+  selector:
+    matchLabels:
+      app: code
+      role: code
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: code
+        role: code
+    spec:
+      serviceAccountName: test-sa
+      containers:
+      - name:  code-pod
+        image: docker.io/glarakis99/code_pod:latest
+        imagePullPolicy: Always
