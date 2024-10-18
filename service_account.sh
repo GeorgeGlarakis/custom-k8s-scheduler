@@ -1,17 +1,19 @@
-kubectl apply -f - <<EOF
+#!/bin/bash
+
+cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: test-sa
+  name: $SERVICE_ACCOUNT_NAME
   namespace: default
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: test-sa-as-kube-scheduler
+  name: $SERVICE_ACCOUNT_NAME-as-kube-scheduler
 subjects:
 - kind: ServiceAccount
-  name: test-sa
+  name: $SERVICE_ACCOUNT_NAME
   namespace: default
 roleRef:
   kind: ClusterRole
@@ -21,10 +23,10 @@ roleRef:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: test-sa-as-volume-scheduler
+  name: $SERVICE_ACCOUNT_NAME-as-volume-scheduler
 subjects:
 - kind: ServiceAccount
-  name: test-sa
+  name: $SERVICE_ACCOUNT_NAME
   namespace: default
 roleRef:
   kind: ClusterRole
@@ -34,16 +36,16 @@ roleRef:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: test-sa-extension-apiserver-authentication-reader
+  name: $SERVICE_ACCOUNT_NAME-extension-apiserver-authentication-reader
+  namespace: default
+subjects:
+- kind: ServiceAccount
+  name: $SERVICE_ACCOUNT_NAME
   namespace: default
 roleRef:
   kind: Role
   name: extension-apiserver-authentication-reader
   apiGroup: rbac.authorization.k8s.io
-subjects:
-- kind: ServiceAccount
-  name: test-sa
-  namespace: default
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -51,7 +53,7 @@ metadata:
   name: custom-role
 rules:
 - apiGroups: ["*"]
-  resources: ["pods", "nodes", "services", "pods/exec", "pods/binding", "pods/metrics"]
+  resources: ["deployments", "replicasets", "pods", "jobs", "nodes", "services", "pods/exec", "pods/binding", "pods/metrics"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "exec", "connect", "bind"]
 ---
 kind: ClusterRoleBinding
@@ -60,10 +62,11 @@ metadata:
   name: custom-role
 subjects:
 - kind: ServiceAccount
-  name: test-sa
+  name: $SERVICE_ACCOUNT_NAME
   namespace: default
 roleRef:
   kind: ClusterRole
   name: custom-role
   apiGroup: rbac.authorization.k8s.io
+
 EOF
