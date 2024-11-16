@@ -1,9 +1,12 @@
-from kubernetes import client, config
+from kubernetes import client, config, watch
 import redis
 import time
-import json
 import os
 import logging
+
+# Initialize environmental variables
+node_name = os.environ.get('NODE_NAME') 
+log_level = os.environ.get('LOG_LEVEL', 'INFO').upper()
 
 # Load Kubernetes configuration
 # config.load_kube_config() ## <-- for debugging, running outside the cluster
@@ -11,36 +14,47 @@ config.load_incluster_config()
 
 # Initialize logger
 logger = logging.getLogger(__name__)
-logging.basicConfig(filename='example.log', encoding='utf-8', level=logging.DEBUG)
+logging.basicConfig(filename='node_agent_logfile.log', encoding='utf-8', level=log_level)
 
 # Set up Kubernetes API client
 v1_apps = client.AppsV1Api()
 v1_core = client.CoreV1Api()
-
-# Initialize environmental variables
-node_name = os.environ.get('NODE_NAME') 
+v1_batch = client.BatchV1Api()
 
 def scheduler(pod_name, node_name, namespace="default"):    
-    target = client.V1ObjectReference(api_version='v1', kind='Node', name=node_name, namespace=namespace)
-
-    meta=client.V1ObjectMeta()
-    meta.name=pod_name
-
-    body=client.V1Binding(target=target, metadata=meta) # V1Binding is deprecated
-
-    # event_response = create_scheduled_event(name, node, namespace, scheduler_name)
-
     try:
+        target = client.V1ObjectReference(api_version='v1', kind='Node', name=node_name, namespace=namespace)
+
+        meta=client.V1ObjectMeta()
+        meta.name=pod_name
+
+        body=client.V1Binding(target=target, metadata=meta) # V1Binding is deprecated
+
+        # event_response = create_scheduled_event(name, node, namespace, scheduler_name)
+    
         return v1_core.create_namespaced_pod_binding(pod_name, namespace, body)
-    except client.rest.ApiException as e:
-        logger.info("Exception when calling create_namespaced_pod_binding: %s\n" % json.loads(e.body)['message'])
-    except:
-        logger.info("An exception occured!")
+    except Exception as e:
+        logger.error(f"Exception when calling create_namespaced_pod_binding: {e}")
 
     return False
 
-# Listen for tasks in the node's queue
-def listen_for_tasks(r):
+def watch_job_completion(job_name, namespace='default'):
+    w = watch.Watch()
+    for event in w.stream(v1_batch.list_namespaced_job, namespace=namespace):
+        if event['reason'] == "Completed":
+            job = event['object']
+            if job.metadata.name == job_name and \
+                job.status.succeeded and job.status.succeeded >= 1:
+
+                logger.info(f"Job {job_name} completed successfully.")
+                break
+            elif job.metadata.name == job_name and \
+                job.status.failed and job.status.failed > 0:
+
+                logger.error(f"Job {job_name} failed.")
+                break
+
+def listen_for_tasks(r, interval=5):
     while True:
         if r.exists("pending_tasks"):
             task = r.rpop("pending_tasks")
@@ -48,10 +62,11 @@ def listen_for_tasks(r):
             logger.info(f"Received task: {task_name}")
             try:
                 scheduler(task_name, node_name)
+                watch_job_completion(task_name)
             except Exception as e:
-                logger.info(f"Error processing task {task_name}: {e}")
+                logger.error(f"Error processing task {task_name}: {e}")
         else:
-            time.sleep(5)  # No tasks, wait for a bit before checking again
+            time.sleep(interval)
 
 def wait_redis(host, port=6379, db=0, timeout=60, interval=5):
     start_time = time.time()
