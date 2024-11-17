@@ -2,12 +2,13 @@ import redis
 import os
 
 # Initialize environmental variables
-node_name = os.environ.get('NODE_NAME')
+data_host = os.environ.get('DATA_ID')
+namespace = os.environ.get('NAMESPACE')
 
 def connect_to_redis():
     try:
         # Connect to Redis instance
-        r = redis.StrictRedis(host=f'{node_name}-redis-service', port=6379)
+        r = redis.StrictRedis(host=f'{data_host}.{namespace}.svc.cluster.local', port=6379)
 
         r.incr('mykey', 1)
         value = r.get('mykey')

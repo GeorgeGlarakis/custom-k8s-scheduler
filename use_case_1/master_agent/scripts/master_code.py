@@ -3,6 +3,11 @@ import random
 import redis
 import os
 import logging
+import migration_job
+
+# Initialize environmental variables
+node_name = os.environ.get('NODE_NAME', "master")
+scheduler_name = os.environ.get('SCHEDULER_NAME', "my-scheduler")
 
 # Load Kubernetes configuration
 # config.load_kube_config() ## <-- for debugging, running outside the cluster
@@ -10,11 +15,7 @@ config.load_incluster_config()
 
 # Initialize logger
 logger = logging.getLogger(__name__)
-logging.basicConfig(filename='example.log', encoding='utf-8', level=logging.DEBUG)
-
-# Initialize environmental variables
-node_name = os.environ.get('NODE_NAME', "master")
-scheduler_name = os.environ.get('SCHEDULER_NAME', "my-scheduler")
+logging.basicConfig(filename='master_agent_logfile.log', encoding='utf-8', level=logging.DEBUG)
 
 # Initialize Redis (or use any other store)
 r = redis.Redis(host=f'{node_name}-redis-service', port=6379)
@@ -37,6 +38,20 @@ def node_evaluation(pod):
     assigned_node = random.choice(nodes)
     logger.info(f"Assigning to node: {assigned_node}")
 
+    ################################################################################
+    # Data Migration Job
+    # python3 migration_job.py --source_node 'node-m02' --destination_node 'node' --data_deployment_name 'data-1'
+
+    # migration_object = {
+    #     'source_node': "",
+    #     'destination_node': "",
+    #     'data_deployment_name': pod.metadata.labels['data_id']
+    # }
+
+    # migration_job.main(migration_object)
+
+    ################################################################################
+
     # Assign the deployment to the selected node
     assign_to_node(pod, assigned_node)
 
@@ -47,7 +62,7 @@ def assign_to_node(pod, assigned_node):
         node_r.hset("pending_deployments", pod_name, pod.metadata.name)
         node_r.lpush("pending_tasks", pod_name)
     except Exception as e:
-        logger.info(f"Error assigning pod to node {assigned_node}: {e}")
+        logger.error(f"Error assigning pod to node {assigned_node}: {e}")
 
 # Watch for new deployments and store for later execution
 def watch_deployments():

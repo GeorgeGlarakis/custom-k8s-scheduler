@@ -1,6 +1,7 @@
 #!/bin/bash
 
 NODES=$(kubectl get nodes -l role=worker -o jsonpath='{.items[*].metadata.name}')
+PV_MOUNT_PATH="/mnt/data"
 
 for NODE in $NODES; do
   cat <<EOF | kubectl apply -f -
@@ -95,5 +96,83 @@ spec:
       targetPort: 6379
   clusterIP: None
   type: ClusterIP
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: $NODE-pv
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Delete
+  storageClassName: local-storage
+  hostPath:
+    path: $PV_MOUNT_PATH
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - $NODE
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: $NODE-pvc
+spec:
+  storageClassName: local-storage
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
+  volumeName: $NODE-pv
+
 EOF
 done
+
+NODE=node
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: $NODE-pv
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Delete
+  storageClassName: local-storage
+  hostPath:
+    path: $PV_MOUNT_PATH
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - $NODE
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: $NODE-pvc
+spec:
+  storageClassName: local-storage
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
+  volumeName: $NODE-pv
+
+EOF
