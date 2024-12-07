@@ -1,5 +1,7 @@
 #!/bin/bash
 
+DATA_HOST=data-1
+
 cat <<EOF | kubectl apply -f -
 apiVersion: batch/v1
 kind: Job
@@ -13,8 +15,6 @@ spec:
       labels:
         app: code-1
         role: code
-        complexity: simple
-        data_id: data-1
     spec:
       schedulerName: $SCHEDULER_NAME
       containers:
@@ -23,10 +23,8 @@ spec:
         env:
         - name: LOG_LEVEL
           value: $LOG_LEVEL
-        - name: DATA_ID
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.labels['data_id']
+        - name: DATA_HOST
+          value: $DATA_HOST
         - name: NAMESPACE
           valueFrom:
             fieldRef:

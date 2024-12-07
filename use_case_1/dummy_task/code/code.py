@@ -2,7 +2,7 @@ import redis
 import os
 
 # Initialize environmental variables
-data_host = os.environ.get('DATA_ID')
+data_host = os.environ.get('DATA_HOST')
 namespace = os.environ.get('NAMESPACE')
 
 def connect_to_redis():

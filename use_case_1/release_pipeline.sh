@@ -12,12 +12,12 @@ docker build -t glarakis99/node_code:latest .
 docker push glarakis99/node_code:latest
 ) &
 (
-cd /home/glarakis/ceid_thesis/custom-k8s-scheduler/use_case_1/dammy_task/code
+cd /home/glarakis/ceid_thesis/custom-k8s-scheduler/use_case_1/dummy_task/code
 docker build -t glarakis99/code_pod:latest .
 docker push glarakis99/code_pod:latest
 ) &
 (
-cd /home/glarakis/ceid_thesis/custom-k8s-scheduler/use_case_1/dammy_task/data
+cd /home/glarakis/ceid_thesis/custom-k8s-scheduler/use_case_1/dummy_task/data
 docker build -t glarakis99/data_pod:latest .
 docker push glarakis99/data_pod:latest
 ) &
