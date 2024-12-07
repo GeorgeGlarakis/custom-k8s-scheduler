@@ -127,6 +127,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+.custom_k8s_scheduler/
 
 # Spyder project settings
 .spyderproject
