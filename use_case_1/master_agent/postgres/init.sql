@@ -29,6 +29,20 @@ CREATE TABLE data (
     PRIMARY KEY (id)
 );
 
+CREATE TABLE task (
+    id SERIAL PRIMARY KEY,
+    code_id INTEGER NOT NULL,
+    data_id INTEGER NOT NULL,
+    time_listed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    time_scheduled TIMESTAMP,
+    time_started TIMESTAMP,
+    time_completed TIMESTAMP,
+    node_id INTEGER,
+    execution_prediction_ms NUMERIC(10,2),
+    completion_prediction_ms NUMERIC(10,2),
+    PRIMARY KEY (id)
+);
+
 CREATE TABLE compatible (
     code_id INTEGER NOT NULL,
     data_id INTEGER NOT NULL,
