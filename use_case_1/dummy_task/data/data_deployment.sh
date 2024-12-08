@@ -24,23 +24,12 @@ spec:
         app: $DATA_ID
         role: data
         code_id: code-1
-    spec:
-      initContainers:
-      - name: init-myservice
-        image: busybox
-        command: ['sh', '-c', 'mkdir -p $PV_MOUNT_PATH/$DATA_ID']
-        volumeMounts:
-        - name: shared-storage
-          mountPath: $PV_MOUNT_PATH       
+    spec:    
       containers:
       - name: data-pod
         image: redis:7.4-alpine
         ports:
         - containerPort: 6379
-        volumeMounts:
-        - mountPath: /data
-          name: shared-storage
-          subPath: $DATA_ID
         resources:
           requests:
             memory: "64Mi"
@@ -48,10 +37,6 @@ spec:
           limits:
             memory: "256Mi"
             cpu: "500m"
-      volumes:
-      - name: shared-storage
-        persistentVolumeClaim:
-          claimName: $NODE-pvc
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:

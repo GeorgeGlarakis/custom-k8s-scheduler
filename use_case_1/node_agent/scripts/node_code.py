@@ -3,23 +3,13 @@ import redis
 import time
 import os
 import logging
+import requests
+import json
+from redis.commands.json.path import Path
 
 # Initialize environmental variables
 node_name = os.environ.get('NODE_NAME') 
 log_level = os.environ.get('LOG_LEVEL', 'INFO').upper()
-
-# Load Kubernetes configuration
-# config.load_kube_config() ## <-- for debugging, running outside the cluster
-config.load_incluster_config()
-
-# Initialize logger
-logger = logging.getLogger(__name__)
-logging.basicConfig(filename='node_agent_logfile.log', encoding='utf-8', level=log_level)
-
-# Set up Kubernetes API client
-v1_apps = client.AppsV1Api()
-v1_core = client.CoreV1Api()
-v1_batch = client.BatchV1Api()
 
 def scheduler(pod_name, node_name, namespace="default"):    
     try:
@@ -68,7 +58,29 @@ def listen_for_tasks(r, interval=5):
         else:
             time.sleep(interval)
 
-def wait_redis(host, port=6379, db=0, timeout=60, interval=5):
+def send_data(logger,redis, data_id):
+    try:
+        data = redis.json().get(f"data:{data_id}")
+        return data
+    
+    except Exception as e:
+        logger.error(f"Error getting data {data_id}: {e}")
+        return e
+    
+def get_data(logger, redis, node_name, data_id):
+    try:
+        url = f"http://{node_name}-worker-agent-service.default.svc.cluster.local:8080/api/v1/get_data/{data_id}"
+        response = requests.get(url)
+        response_body = response.json()
+
+        redis.json().set(f"data:{data_id}", Path.root_path(), response_body["data"])
+        return True
+    except Exception as e:
+        logger.error(f"Error getting data {data_id}: {e}")
+        return e
+    
+
+def wait_redis(logger, host, port=6379, db=0, timeout=60, interval=5):
     start_time = time.time()
     r = redis.Redis(host=host, port=port, db=db)
 
@@ -90,6 +102,19 @@ def wait_redis(host, port=6379, db=0, timeout=60, interval=5):
         time.sleep(interval)
 
 if __name__ == "__main__":
+    # Load Kubernetes configuration
+    # config.load_kube_config() ## <-- for debugging, running outside the cluster
+    config.load_incluster_config()
+
+    # Initialize logger
+    logger = logging.getLogger(__name__)
+    logging.basicConfig(filename='node_agent_logfile.log', encoding='utf-8', level=log_level)
+
+    # Set up Kubernetes API client
+    v1_apps = client.AppsV1Api()
+    v1_core = client.CoreV1Api()
+    v1_batch = client.BatchV1Api()
+
     logger.info("Starting node agent...")
-    redis = wait_redis(host=f'{node_name}-redis-service')
+    redis = wait_redis(host=f'{node_name}-worker-redis-service')
     listen_for_tasks(redis)

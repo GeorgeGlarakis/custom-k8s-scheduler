@@ -1,0 +1,6 @@
+kubernetes
+redis
+flask
+flask_cors
+requests
+logging
