@@ -6,25 +6,25 @@ cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: $MASTER-agent-deployment
+  name: $MASTER-master-agent-deployment
   labels:
-    app: $MASTER-agent
-    redis_host: $MASTER-redis 
+    app: $MASTER-master-agent
+    redis_host: $MASTER-master-redis 
 spec:
   selector:
     matchLabels:
-      app: $MASTER-agent
+      app: $MASTER-master-agent
       role: code
   replicas: 1
   template:
     metadata:
       labels:
-        app: $MASTER-agent
+        app: $MASTER-master-agent
         role: code
     spec:
       serviceAccountName: $SERVICE_ACCOUNT_NAME
       containers:
-      - name:  $MASTER-agent-pod
+      - name:  $MASTER-master-agent-pod
         image: docker.io/glarakis99/master_code:latest
         env:
         - name: NODE_NAME
@@ -47,24 +47,24 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: $MASTER-redis-deployment
+  name: $MASTER-master-redis-deployment
   labels:
-    app: $MASTER-redis
+    app: $MASTER-master-redis
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: $MASTER-redis
+      app: $MASTER-master-redis
       role: data
   template:
     metadata:
       labels:
-        app: $MASTER-redis
+        app: $MASTER-master-redis
         role: data
     spec:
       containers:
-      - name: $MASTER-redis
-        image: redis:7.4-alpine
+      - name: $MASTER-master-redis
+        image: redis/redis-stack-server:7.4.0-v1
         ports:
         - containerPort: 6379
       affinity:
@@ -81,12 +81,12 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: $MASTER-redis-service
+  name: $MASTER-master-redis-service
   labels:
     app: redis
 spec:
   selector:
-    app: $MASTER-redis
+    app: $MASTER-master-redis
     role: data
   ports:
     - protocol: TCP

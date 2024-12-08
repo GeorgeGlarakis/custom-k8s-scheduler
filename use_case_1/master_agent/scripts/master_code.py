@@ -101,7 +101,7 @@ def set_task(task):
     try:
         node_r = redis.Redis(host=f'{task["node_name"]}-redis-service', port=6379)
         node_r.lpush("pending_tasks", task["task_id"])
-        node_r.json().set(f"task:{task["task_id"]}", Path.root_path(), task)
+        node_r.json().set(f"task:{task['task_id']}", Path.root_path(), task)
     
     except Exception as e:
         logger.error(f"Error setting task: {e}")
@@ -312,7 +312,7 @@ if __name__ == "__main__":
     logging.basicConfig(filename='master_agent_logfile.log', encoding='utf-8', level=logging.DEBUG)
 
     # Initialize Redis (or use any other store)
-    redis = wait_redis(host=f'{this_node}-redis-service')
+    redis = wait_redis(host=f'{this_node}-master-redis-service')
     redis_init(redis)
 
     # Initialize Postgres

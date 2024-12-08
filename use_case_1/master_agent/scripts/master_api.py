@@ -3,6 +3,8 @@ from flask_cors import CORS
 import psycopg2
 import os
 import datetime
+import pickle
+import json
 
 import master_code
 
@@ -17,6 +19,14 @@ conn = psycopg2.connect(
     user =     os.environ.get('POSTGRES_USER', 'master_agent'),
     password = os.environ.get('POSTGRES_PASSWORD', 'master_password')
 )
+
+################################################################################
+
+@app.route('/', methods=['POST'])
+def index():
+    return jsonify("{'status':'ok'}")
+
+################################################################################
 
 @app.route('/api/v1/node', methods=['GET'])
 def get_nodes():
@@ -98,5 +108,22 @@ def create_task():
 
 ################################################################################
 
+@app.route('/api/v1/test_pickle', methods=['GET'])
+def test_pickle():
+    body = request.get_json()
+    data_id = body['data_id']
+
+    test = {
+        "test": "this is a test",
+        "data_id": data_id,
+        "data": [1, 2, 3, 4, 5]
+    }
+
+    # pickled_data = pickle.dumps(test)
+    pickled_data = json.dumps(test)
+    return pickled_data
+
+################################################################################
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8080)
+    app.run(host='0.0.0.0', port=8080, debug=True)
