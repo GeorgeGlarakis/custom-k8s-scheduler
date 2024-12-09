@@ -6,8 +6,8 @@ metadata:
     app: postgres
 data:
   POSTGRES_DB: master_db
-  POSTGRES_USER: pg_user
-  POSTGRES_PASSWORD: pg_passwrod
+  POSTGRES_USER: postgres_admin
+  POSTGRES_PASSWORD: postgres_password
 
 ---
 apiVersion: v1
