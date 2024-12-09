@@ -7,22 +7,27 @@ import requests
 import json
 from redis.commands.json.path import Path
 
+import code_job
+
 # Initialize environmental variables
 node_name = os.environ.get('NODE_NAME') 
 log_level = os.environ.get('LOG_LEVEL', 'INFO').upper()
 
-def scheduler(pod_name, node_name, namespace="default"):    
+def scheduler(task_info):    
     try:
-        target = client.V1ObjectReference(api_version='v1', kind='Node', name=node_name, namespace=namespace)
+        job_info = {
+            'JOB_NAME'   : f'task-{task_info["task_id"]}',
+            'IMAGE_NAME' : task_info["image"],
+            'IMAGE_TAG'  : task_info["tag"],
+            'DATA_ID'    : task_info["data_id"],
+            'NODE_NAME'  : task_info["node_name"],
+        }
 
-        meta=client.V1ObjectMeta()
-        meta.name=pod_name
+        code_job.main(job_info)
 
-        body=client.V1Binding(target=target, metadata=meta) # V1Binding is deprecated
 
-        # event_response = create_scheduled_event(name, node, namespace, scheduler_name)
     
-        return v1_core.create_namespaced_pod_binding(pod_name, namespace, body)
+        return True
     except Exception as e:
         logger.error(f"Exception when calling create_namespaced_pod_binding: {e}")
 

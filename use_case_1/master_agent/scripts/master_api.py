@@ -3,7 +3,6 @@ from flask_cors import CORS
 import psycopg2
 import os
 import datetime
-import pickle
 import json
 
 import master_code
@@ -85,25 +84,41 @@ def get_compatible():
 
 ################################################################################
 
-@app.route('/api/v1/task', methods=['POST'])
+@app.route('/api/v1/task', methods=['POST', 'GET'])
 def create_task():
     body = request.get_json()
     code_id = body['code_id']
     data_id = body['data_id']
 
-    # Trigger evaluation of code, data and node
-    node_selection, execution_time = master_code.evaluate_task(code_id, data_id)
+    cur = conn.cursor()
+    cur.execute(f"INSERT INTO task (code_id, data_id) VALUES ({code_id}, {data_id}) RETURNING id")
+    task_id = cur.fetchone()[0]
+
     task_info = {
-        "task_id": int(hash(datetime.now())),
+        "task_id": task_id,
         "code_id": code_id,
         "data_id": data_id,
-        "node_name": node_selection,
-        "execution_time": execution_time,
-        "status": "pending",
-        "time_created": datetime.now(),
+        "node_name": "",
+        "image": "",
+        "tag": "",
+        "execution_time": "",
+        "status": "listed",
+        "time_created": str(datetime.now()),
         "time_completed": ""
     }
+
+    # Trigger evaluation of code, data and node
+    task_info = master_code.evaluate_task(task_info)
+    
     master_code.set_task(task_info)
+    cur.execute(f"""UPDATE task 
+                SET node_id = node.id
+                    , time_scheduled=CURRENT_TIMESTAMP
+                    , execution_prediction_ms = {task_info['execution_time']}
+                    , completion_prediction_ms = {task_info['earliest_completion_time']}
+                FROM node
+                WHERE task.id = {task_id}
+                AND node.name = {task_info['node_name']};""")
     return jsonify("{'status':'scheduled'}", status=201)
 
 ################################################################################

@@ -17,8 +17,8 @@ def create_job_object(job_info, logger):
                     name = 'LOG_LEVEL',
                     value = LOG_LEVEL ),
                 client.V1EnvVar(
-                    name = 'DATA_HOST',
-                    value = job_info['DATA_HOST']),
+                    name = 'DATA_ID',
+                    value = job_info['DATA_ID']),
                 client.V1EnvVar(
                     name = 'NAMESPACE',
                     value_from = client.V1EnvVarSource(
@@ -117,7 +117,7 @@ if __name__ == '__main__':
     parser.add_argument('--job_name',   dest='job_name',    help='Job Name',    required=True)
     parser.add_argument('--image_name', dest='image_name',  help='Image Name',  required=True)
     parser.add_argument('--image_tag',  dest='image_tag',   help='Image Tag',   required=True)
-    parser.add_argument('--data_host',  dest='data_host',   help='Data Host',   required=True)
+    parser.add_argument('--data_id',    dest='data_id',     help='Data ID',   required=True)
     parser.add_argument('--node_name',  dest='node_name',   help='Node Name',   required=True)
     args = parser.parse_args()
 
@@ -125,10 +125,10 @@ if __name__ == '__main__':
         'JOB_NAME'   : args.job_name,
         'IMAGE_NAME' : args.image_name,
         'IMAGE_TAG'  : args.image_tag,
-        'DATA_HOST'  : args.data_host,
+        'DATA_ID'  : args.data_id,
         'NODE_NAME'  : args.node_name,
     }
 
     main(job_info)
 
-# python3 code_job.py --job_name=code-job --image_name=code_pod --image_tag=latest --data_host=data-1 --node_name=node-m02
+# python3 code_job.py --job_name=code-job --image_name=code_pod --image_tag=latest --data_id=1 --node_name=node-m02

@@ -97,11 +97,21 @@ def get_node_images(v1_core, node_name):
         logger.error(f"Error getting node images: {e}")
         return e
     
+def get_code_image(code_id, conn):
+    try:
+        cur = conn.cursor()
+        code = cur.execute(f"SELECT image, tag FROM code WHERE id = {code_id};").fetchone()[0]
+
+        return code
+    except Exception as e:
+        logger.error(f"Error getting code image: {e}")
+        return e
+    
 def set_task(task):
     try:
         node_r = redis.Redis(host=f'{task["node_name"]}-redis-service', port=6379)
-        node_r.lpush("pending_tasks", task["task_id"])
         node_r.json().set(f"task:{task['task_id']}", Path.root_path(), task)
+        node_r.lpush("pending_tasks", task["task_id"])
     
     except Exception as e:
         logger.error(f"Error setting task: {e}")
@@ -179,7 +189,7 @@ def get_data_migration_time(node_from, node_to, data_id, conn):
         logger.error(f"Error calculating data migration time: {e}")
         return None
     
-def evaluate_task(code_id, data_id):
+def evaluate_task(task_info):
     try:
         earliest_completion_time = None
         node_selection = None
@@ -193,7 +203,7 @@ def evaluate_task(code_id, data_id):
                         INNER JOIN node ON node_info.node_id = node.id \
                         WHERE node_info.pod_type = 'code' \
                         AND node.name = ? \
-                        AND node_info.pod_id = ?;", node, code_id).fetchone()
+                        AND node_info.pod_id = ?;", node, task_info['code_id']).fetchone()
             if code is not None:
                 code_exists = True
 
@@ -203,19 +213,19 @@ def evaluate_task(code_id, data_id):
                         INNER JOIN node ON node_info.node_id = node.id \
                         WHERE node_info.pod_type = 'data' \
                         AND node.name = ? \
-                        AND node_info.pod_id = ?;", node, data_id).fetchone()
+                        AND node_info.pod_id = ?;", node, task_info['data_id']).fetchone()
             if data is not None:
                 data_exists = True
 
             node_id = conn.execute("SELECT id FROM node WHERE name = ?;", node).fetchone()[0]
             buffer_time = get_buffer_time(node)
-            execution_time = get_execution_time(node, code_id, data_id, conn)
-            code_migration_time = get_code_migration_time(node_id, code_id, conn)
+            execution_time = get_execution_time(node, task_info['code_id'], task_info['data_id'], conn)
+            code_migration_time = get_code_migration_time(node_id, task_info['code_id'], conn)
 
             node_from = conn.execute("\
                                 SELECT node_id FROM node_info \
-                                WHERE pod_type = 'data' AND pod_id = ?;", data_id).fetchone()[0]
-            data_migration_time = get_data_migration_time(node_from, node_id, data_id, conn)
+                                WHERE pod_type = 'data' AND pod_id = ?;", task_info['data_id']).fetchone()[0]
+            data_migration_time = get_data_migration_time(node_from, node_id, task_info['data_id'], conn)
 
             if code_exists and data_exists:
                 # Calculate Completion Time
@@ -226,7 +236,7 @@ def evaluate_task(code_id, data_id):
                 ## Buffer Time + Data Migration Time + Execution Time
                 node_from = conn.execute("\
                                 SELECT node_id FROM node_info \
-                                WHERE pod_type = 'data' AND pod_id = ?;", data_id).fetchone()[0]
+                                WHERE pod_type = 'data' AND pod_id = ?;", task_info['data_id']).fetchone()[0]
                 completion_time = buffer_time + execution_time + data_migration_time
             elif not code_exists and data_exists:
                 # Calculate Data Time
@@ -237,31 +247,24 @@ def evaluate_task(code_id, data_id):
                 ## Buffer Time + max( Fetch Image + Data Migration Time ) + Execution Time
                 node_from = conn.execute("\
                                 SELECT node_id FROM node_info \
-                                WHERE pod_type = 'data' AND pod_id = ?;", data_id).fetchone()[0]
+                                WHERE pod_type = 'data' AND pod_id = ?;", task_info['data_id']).fetchone()[0]
                 migration_time = max(code_migration_time, data_migration_time)
                 completion_time = buffer_time + execution_time + migration_time
 
             if earliest_completion_time is None or completion_time < earliest_completion_time:
                 node_selection = node
                 earliest_completion_time = completion_time
-            
-        return node_selection, execution_time
+        
+        task_info['node_name'] = node_selection
+        task_info['execution_time'] = execution_time
+        task_info['earliest_completion_time'] = earliest_completion_time
+        return task_info
     
     except Exception as e:
         logger.error(f"Error evaluating task: {e}")
         return e
 
 def redis_init(r):
-    # task_info = {
-    #     "task_id": "",
-    #     "code_id": "",
-    #     "data_id": "",
-    #     "node_name": "",
-    #     "execution_time": "",
-    #     "status": "",
-    #     "time_created": "",
-    #     "time_completed": ""
-    # }
     try:
         schema = (
             NumericField("$.task_id", as_name="task_id"),
