@@ -20,6 +20,9 @@ def create_job_object(job_info, logger):
                     name = 'DATA_ID',
                     value = job_info['DATA_ID']),
                 client.V1EnvVar(
+                    name = 'NODE_NAME',
+                    value = job_info['NODE_NAME']),
+                client.V1EnvVar(
                     name = 'NAMESPACE',
                     value_from = client.V1EnvVarSource(
                         field_ref = client.V1ObjectFieldSelector(

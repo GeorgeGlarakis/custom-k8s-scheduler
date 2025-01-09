@@ -2,7 +2,7 @@
 
 source_directory="./assets"
 code_jobs=("$source_directory"/*.py)
-tag="latest"
+tag="1.0"
 
 build_docker_image() {
     local code_path="$1"
@@ -28,7 +28,7 @@ build_docker_image() {
         ENTRYPOINT ["python3", "main.py"]
 EOL
 
-    docker build -t "glarakis99/code-job-$code_name" -f Dockerfile-$code_name "$source_directory"
+    docker build -t "glarakis99/code-job-$code_name:$tag" -f Dockerfile-$code_name "$source_directory"
     docker push "glarakis99/code-job-$code_name:$tag"
 
     image_size=$(docker image inspect "glarakis99/code-job-$code_name:$tag" --format='{{.Size}}')

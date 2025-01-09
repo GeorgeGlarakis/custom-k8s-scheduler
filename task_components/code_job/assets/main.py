@@ -14,7 +14,7 @@ namespace = os.environ.get('NAMESPACE', 'default')
 def sort_data(logger):
     try:
         # Connect to Redis instance
-        r = redis.StrictRedis(host=f'{node_name}.{namespace}.svc.cluster.local', port=6379)
+        r = redis.StrictRedis(host=f'{node_name}-worker-redis-service.{namespace}.svc.cluster.local', port=6379)
         logger.debug(f"Connected to Redis at {node_name}.{namespace}.svc.cluster.local")
 
         data = r.json().get(f"data:{data_id}")
