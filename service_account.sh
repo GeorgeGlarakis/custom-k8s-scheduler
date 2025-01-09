@@ -53,7 +53,7 @@ metadata:
   name: custom-role
 rules:
 - apiGroups: ["*"]
-  resources: ["deployments", "replicasets", "pods", "jobs", "nodes", "services", "pods/exec", "pods/binding", "pods/metrics"]
+  resources: ["deployments", "replicasets", "pods", "jobs", "nodes", "services", "pods/exec", "pods/binding", "pods/metrics", "events"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "exec", "connect", "bind"]
 ---
 kind: ClusterRoleBinding

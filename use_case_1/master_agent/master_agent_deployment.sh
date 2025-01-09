@@ -42,6 +42,23 @@ spec:
                 values:
                 - master
       
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: $MASTER-master-agent-service
+  labels:
+    app: $MASTER-master-agent
+spec:
+  selector:
+    app: $MASTER-master-agent
+    role: code
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+  clusterIP: None
+  type: ClusterIP
 
 ---
 apiVersion: apps/v1

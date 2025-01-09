@@ -7,9 +7,14 @@ docker build -t glarakis99/master_code:latest .
 docker push glarakis99/master_code:latest
 ) &
 (
-cd /home/glarakis/ceid_thesis/custom-k8s-scheduler/use_case_1/node_agent
+cd /home/glarakis/ceid_thesis/custom-k8s-scheduler/use_case_1/node_agent/node_api
 docker build -t glarakis99/node_code:latest .
 docker push glarakis99/node_code:latest
+) &
+(
+cd /home/glarakis/ceid_thesis/custom-k8s-scheduler/use_case_1/node_agent/node_task_runner
+docker build -t glarakis99/node_task_runner:latest .
+docker push glarakis99/node_task_runner:latest
 ) &
 (
 cd /home/glarakis/ceid_thesis/custom-k8s-scheduler/use_case_1/dummy_task/code
@@ -31,25 +36,25 @@ wait
 
 ##### ----------------------------------------------------------------------------
 
-DEPLOYMENTS=$(kubectl get deployments -o jsonpath='{.items[*].metadata.name}')
-for DEPLOYMENT in $DEPLOYMENTS; do
-    kubectl delete deployment "$DEPLOYMENT"
-done
+# DEPLOYMENTS=$(kubectl get deployments -o jsonpath='{.items[*].metadata.name}')
+# for DEPLOYMENT in $DEPLOYMENTS; do
+#     kubectl delete deployment "$DEPLOYMENT"
+# done
 
-JOBS=$(kubectl get jobs -o jsonpath='{.items[*].metadata.name}')
-for JOB in $JOBS; do
-    kubectl delete job "$JOB"
-done
+# JOBS=$(kubectl get jobs -o jsonpath='{.items[*].metadata.name}')
+# for JOB in $JOBS; do
+#     kubectl delete job "$JOB"
+# done
 
-PVS=$(kubectl get pv -o jsonpath='{.items[*].metadata.name}')
-for PV in $PVS; do
-    kubectl delete pv "$PV"
-done
+# PVS=$(kubectl get pv -o jsonpath='{.items[*].metadata.name}')
+# for PV in $PVS; do
+#     kubectl delete pv "$PV"
+# done
 
-PVCS=$(kubectl get pvc -o jsonpath='{.items[*].metadata.name}')
-for PVC in $PVCS; do
-    kubectl delete pvc "$PVC"
-done
+# PVCS=$(kubectl get pvc -o jsonpath='{.items[*].metadata.name}')
+# for PVC in $PVCS; do
+#     kubectl delete pvc "$PVC"
+# done
 
 # Kubernetes Init
 # kubectl label node <node_name> node-role.kubernetes.io/worker=worker
