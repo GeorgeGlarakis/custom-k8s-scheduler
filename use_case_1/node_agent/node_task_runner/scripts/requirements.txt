@@ -1,0 +1,4 @@
+kubernetes
+redis
+logging
+psycopg2

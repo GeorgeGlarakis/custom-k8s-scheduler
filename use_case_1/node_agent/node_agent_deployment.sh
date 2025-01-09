@@ -116,82 +116,43 @@ spec:
   clusterIP: None
   type: ClusterIP
 
-# ---
-# apiVersion: v1
-# kind: PersistentVolume
-# metadata:
-#   name: $NODE-pv
-# spec:
-#   capacity:
-#     storage: 1Gi
-#   accessModes:
-#     - ReadWriteMany
-#   persistentVolumeReclaimPolicy: Delete
-#   storageClassName: local-storage
-#   hostPath:
-#     path: $PV_MOUNT_PATH
-#   nodeAffinity:
-#     required:
-#       nodeSelectorTerms:
-#         - matchExpressions:
-#             - key: kubernetes.io/hostname
-#               operator: In
-#               values:
-#                 - $NODE
-
-# ---
-# apiVersion: v1
-# kind: PersistentVolumeClaim
-# metadata:
-#   name: $NODE-pvc
-# spec:
-#   storageClassName: local-storage
-#   accessModes:
-#     - ReadWriteMany
-#   resources:
-#     requests:
-#       storage: 1Gi
-#   volumeName: $NODE-pv
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: $NODE-task-runner-deployment
+  labels:
+    app: $NODE-task-runner
+    redis_host: $NODE-worker-redis
+spec:
+  selector:
+    matchLabels:
+      app: $NODE-task-runner
+      role: code
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: $NODE-task-runner
+        role: code
+    spec:
+      serviceAccountName: sa-scheduler
+      containers:
+      - name: $NODE-task-runner-pod
+        image: docker.io/glarakis99/node_task_runner:latest
+        env:
+        - name: NODE_NAME
+          value: $NODE
+        imagePullPolicy: Always
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values:
+                - $NODE
 
 EOF
 done
-
-# NODE=node
-# cat <<EOF | kubectl apply -f -
-# apiVersion: v1
-# kind: PersistentVolume
-# metadata:
-#   name: $NODE-pv
-# spec:
-#   capacity:
-#     storage: 1Gi
-#   accessModes:
-#     - ReadWriteMany
-#   persistentVolumeReclaimPolicy: Delete
-#   storageClassName: local-storage
-#   hostPath:
-#     path: $PV_MOUNT_PATH
-#   nodeAffinity:
-#     required:
-#       nodeSelectorTerms:
-#         - matchExpressions:
-#             - key: kubernetes.io/hostname
-#               operator: In
-#               values:
-#                 - $NODE
-
-# ---
-# apiVersion: v1
-# kind: PersistentVolumeClaim
-# metadata:
-#   name: $NODE-pvc
-# spec:
-#   storageClassName: local-storage
-#   accessModes:
-#     - ReadWriteMany
-#   resources:
-#     requests:
-#       storage: 1Gi
-#   volumeName: $NODE-pv
-
-# EOF
