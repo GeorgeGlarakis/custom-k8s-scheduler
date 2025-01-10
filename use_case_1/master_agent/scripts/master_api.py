@@ -1,14 +1,29 @@
+from kubernetes import client, config, watch
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import psycopg2
 import os
-import datetime
+from datetime import datetime
 import json
+import logging
 
 import master_code
 
+# Initialize logger
+logger = logging.getLogger(__name__)
+logging.basicConfig(filename='master_agent_logfile.log', encoding='utf-8', level=logging.DEBUG)
+
 app = Flask(__name__)
 CORS(app)
+
+# Load Kubernetes configuration
+# config.load_kube_config() ## <-- for debugging, running outside the cluster
+config.load_incluster_config()
+
+# Set up Kubernetes API client
+v1_apps = client.AppsV1Api()
+v1_core = client.CoreV1Api()
+v1_batch = client.BatchV1Api()
 
 # Connect to PostgreSQL database
 conn = psycopg2.connect(
@@ -93,6 +108,7 @@ def create_task():
     cur = conn.cursor()
     cur.execute(f"INSERT INTO task (code_id, data_id) VALUES ({code_id}, {data_id}) RETURNING id")
     task_id = cur.fetchone()[0]
+    conn.commit()
 
     task_info = {
         "task_id": task_id,
@@ -107,10 +123,12 @@ def create_task():
         "time_completed": ""
     }
 
+    task_info["image"], task_info["tag"] = master_code.get_code_image(code_id, conn, logger)
+
     # Trigger evaluation of code, data and node
-    task_info = master_code.evaluate_task(task_info)
+    task_info = master_code.evaluate_task(task_info, conn, v1_core, logger)
     
-    master_code.set_task(task_info)
+    master_code.set_task(task_info, logger)
     cur.execute(f"""UPDATE task 
                 SET node_id = node.id
                     , time_scheduled=CURRENT_TIMESTAMP
@@ -118,8 +136,10 @@ def create_task():
                     , completion_prediction_ms = {task_info['earliest_completion_time']}
                 FROM node
                 WHERE task.id = {task_id}
-                AND node.name = {task_info['node_name']};""")
-    return jsonify("{'status':'scheduled'}", status=201)
+                AND node.name = '{task_info['node_name']}';""")
+    conn.commit()
+    cur.close()
+    return jsonify("{'status':'scheduled'}")
 
 ################################################################################
 

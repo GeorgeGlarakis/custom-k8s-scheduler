@@ -17,15 +17,16 @@ this_node = os.environ.get('NODE_NAME', "master")
 scheduler_name = os.environ.get('SCHEDULER_NAME', "my-scheduler")
 
 # Get available nodes
-def get_nodes():
-    nodes = v1_core.list_node(label_selector="role=worker")
+def get_nodes(v1_core):
+    # nodes = v1_core.list_node(label_selector="role=worker")
+    nodes = v1_core.list_node()
     node_names = [node.metadata.name for node in nodes.items]
     return node_names
 
 # Evaluate most suitable node for deployment
-def node_evaluation(pod):
+def node_evaluation(pod, v1_core, logger):
     # Get list of nodes and randomly select one
-    nodes = get_nodes()
+    nodes = get_nodes(v1_core)
     assigned_node = random.choice(nodes)
     logger.info(f"Assigning to node: {assigned_node}")
 
@@ -44,9 +45,9 @@ def node_evaluation(pod):
     ################################################################################
 
     # Assign the deployment to the selected node
-    assign_to_node(pod, assigned_node)
+    assign_to_node(pod, assigned_node, logger)
 
-def assign_to_node(pod, assigned_node):
+def assign_to_node(pod, assigned_node, logger):
     try:
         node_r = redis.Redis(host=f'{assigned_node}-redis-service', port=6379)
         pod_name = pod.metadata.name
@@ -55,27 +56,7 @@ def assign_to_node(pod, assigned_node):
     except Exception as e:
         logger.error(f"Error assigning pod to node {assigned_node}: {e}")
 
-# Watch for new deployments and store for later execution
-def watch_deployments():
-    w = watch.Watch()
-    for event in w.stream(v1_core.list_namespaced_pod, namespace="default"):
-        if event['object'].status.phase == "Pending" and \
-            event['type'] == "ADDED" and \
-            event['object'].spec.scheduler_name == scheduler_name and \
-            event['object'].metadata.labels.get('role') == "code":
-
-            pod = event['object']
-            pod_name = pod.metadata.name
-
-            logger.info(f"New pending pod detected: {pod_name}")
-            
-            # Store deployment details in Redis (you can also serialize the deployment spec)
-            r.hset("pending_deployments", pod_name, pod.metadata.name)
-            logger.info(f"Deployment {pod_name} stored for later execution")
-
-            node_evaluation(pod)
-
-def get_node_images(v1_core, node_name):
+def get_node_images(v1_core, node_name, logger):
     try:
         node = v1_core.list_node(field_selector=f"metadata.name={node_name}")
 
@@ -97,19 +78,21 @@ def get_node_images(v1_core, node_name):
         logger.error(f"Error getting node images: {e}")
         return e
     
-def get_code_image(code_id, conn):
+def get_code_image(code_id, conn, logger):
     try:
         cur = conn.cursor()
-        code = cur.execute(f"SELECT image, tag FROM code WHERE id = {code_id};").fetchone()[0]
-
-        return code
+        cur.execute(f"SELECT image, tag FROM code WHERE id = {code_id};")
+        code = cur.fetchone()
+        cur.close()
+        return code[0], code[1]
     except Exception as e:
         logger.error(f"Error getting code image: {e}")
         return e
     
-def set_task(task):
+def set_task(task, logger):
     try:
-        node_r = redis.Redis(host=f'{task["node_name"]}-redis-service', port=6379)
+        task["status"] = "pending"
+        node_r = redis.Redis(host=f'{task["node_name"]}-worker-redis-service', port=6379)
         node_r.json().set(f"task:{task['task_id']}", Path.root_path(), task)
         node_r.lpush("pending_tasks", task["task_id"])
     
@@ -118,114 +101,153 @@ def set_task(task):
         return e
 
     
-def get_buffer_time(node_name):
+def get_buffer_time(node_name, logger):
     try:
-        node_r = redis.Redis(host=f'{node_name}-redis-service', port=6379)
+        node_r = redis.Redis(host=f'{node_name}-worker-redis-service', port=6379)
+        redis_init(node_r, logger)
         rs = node_r.ft("task:index")
         pending_tasks = rs.search(
             Query("@status:pending").return_fields("task_id", "execution_time")
         )
 
         buffer_time = 0
-        for task in pending_tasks:
-            buffer_time += task["execution_time"]
+        for task in pending_tasks.docs:
+            buffer_time += int(task["execution_time"])
 
+        logger.debug(f"[{node_name}] Buffer time: {buffer_time}")
         return buffer_time
 
     except Exception as e:
-        logger.error(f"Error evaluating task: {e}")
+        logger.error(f"Error calculating buffer time: {e}")
         return None
     
-def get_execution_time(node_name, code_id, data_id, conn):
+def get_execution_time(node_name, code_id, data_id, conn, logger):
     try:
-        cpu_speed = conn.execute("\
-                        SELECT cpu_speed FROM node \
-                        WHERE name = ?;", node_name).fetchone()[0]
-        complexity = conn.execute("\
-                        SELECT complexity FROM code \
-                        WHERE id = ?;", code_id).fetchone()[0]
-        count_n = conn.execute("\
-                        SELECT count_n FROM data \
-                        WHERE id = ?;", data_id).fetchone()[0]
+        cpu_speed_devider = 1 # 1000000
+        execution_time = 0
+        cur = conn.cursor()
+        cur.execute(f"""
+            SELECT cpu_speed FROM node
+            WHERE name = '{node_name}';""")
+        cpu_speed = cur.fetchone()[0]
+        cur.execute(f"""
+            SELECT complexity FROM code
+            WHERE id = {code_id};""")
+        complexity = cur.fetchone()[0]
+        cur.execute(f"""
+            SELECT count_n FROM data
+            WHERE id = {data_id};""")
+        count_n = cur.fetchone()[0]
         
-        # O(n) | O(n^2) | O(nlogn)
+        # O(n) | O(n^2) | O(n*log(n)) 
         case = complexity.lower()
         if case == "O(n)":
-            execution_time = count_n / (cpu_speed * 1000000)
+            execution_time = count_n / ( cpu_speed * cpu_speed_devider )
         elif case == "O(n^2)":
-            execution_time = ( count_n ^ 2 ) / ( cpu_speed * 1000000 )
-        elif case == "O(nlogn)":
-            execution_time = ( count_n * math.log(count_n) ) / ( cpu_speed * 1000000 )
+            execution_time = ( count_n ^ 2 ) / ( cpu_speed * cpu_speed_devider )
+        elif case == "O(n*log(n))":
+            execution_time = ( count_n * math.log(count_n) ) / ( cpu_speed * cpu_speed_devider )
         
+        cur.close()        
         return execution_time
     
     except Exception as e:
         logger.error(f"Error calculating execution time: {e}")
         return None
     
-def get_code_migration_time(node_id, code_id, conn):
+def get_code_migration_time(node_id, code_id, conn, logger):
     try:
-        code_size = conn.execute(f"SELECT size_mb FROM code WHERE id = ?;", code_id).fetchone()[0]
-        # node_lat = conn.execute(f"SELECT latency_ms FROM node_latency WHERE node_from = ? AND node_to = ?;", "master", node_id).fetchone()[0]
-        network_speed = 1000 # Mbps
+        cur = conn.cursor()
+        cur.execute(f"SELECT size_mb FROM code WHERE id = {code_id};")
+        code_size = cur.fetchone()[0]
+        # cur.execute(f"SELECT latency_ms FROM node_latency WHERE node_from = 'master' AND node_to = {node_id};")
+        # node_lat = cur.fetchone()[0]
+        network_speed = 1  # Mbps
 
         get_code_migration_time = code_size / network_speed
+        cur.close()
         return get_code_migration_time
 
     except Exception as e:
         logger.error(f"Error calculating code migration time: {e}")
         return None
     
-def get_data_migration_time(node_from, node_to, data_id, conn):
+def get_data_migration_time(node_from, node_to, data_id, conn, logger):
     try:
-        data_size = conn.execute(f"SELECT size_mb FROM data WHERE id = ?;", data_id).fetchone()[0]
-        node_latency = conn.execute(f"SELECT latency_ms FROM node_latency WHERE node_from = ? AND node_to = ?;", node_from, node_to).fetchone()[0]
-        network_speed = 1000 # Mbps
+        cur = conn.cursor()
+        cur.execute(f"SELECT size_mb FROM data WHERE id = {data_id};")
+        data_size = cur.fetchone()[0]
+        cur.execute(f"SELECT latency_ms FROM node_latency WHERE node_from = {node_from} AND node_to = {node_to};")
+        node_latency = cur.fetchone()[0]
+        network_speed = 1 # Mbps
 
         get_data_migration_time = ( data_size / network_speed ) + node_latency
+
+        cur.close()
         return get_data_migration_time
 
     except Exception as e:
         logger.error(f"Error calculating data migration time: {e}")
         return None
     
-def evaluate_task(task_info):
+def evaluate_task(task_info, conn, v1_core, logger):
     try:
         earliest_completion_time = None
         node_selection = None
         # Evaluate each node
-        nodes = get_nodes()
+        nodes = get_nodes(v1_core)
+
+        cur = conn.cursor()
         for node in nodes:
+            logger.debug(f"[task-{task_info['task_id']}] Evaluating node: {node}")
+
             # Check if node has code and data
             code_exists = False
-            code = conn.execute("\
-                        SELECT 1 FROM node_info \
-                        INNER JOIN node ON node_info.node_id = node.id \
-                        WHERE node_info.pod_type = 'code' \
-                        AND node.name = ? \
-                        AND node_info.pod_id = ?;", node, task_info['code_id']).fetchone()
+            cur.execute(f"""
+                SELECT 1 FROM node_info
+                INNER JOIN node ON node_info.node_id = node.id
+                WHERE node_info.pod_type = 'code'
+                AND node.name = '{node}'
+                AND node_info.pod_id = {task_info['code_id']};""")
+            code = cur.fetchone()
+            logger.debug(f"[task-{task_info['task_id']}][{node}] Code: {code}")
             if code is not None:
                 code_exists = True
 
             data_exists = False           
-            data = conn.execute("\
-                        SELECT 1 FROM node_info \
-                        INNER JOIN node ON node_info.node_id = node.id \
-                        WHERE node_info.pod_type = 'data' \
-                        AND node.name = ? \
-                        AND node_info.pod_id = ?;", node, task_info['data_id']).fetchone()
+            cur.execute(f"""
+                SELECT 1 FROM node_info
+                INNER JOIN node ON node_info.node_id = node.id
+                WHERE node_info.pod_type = 'data'
+                AND node.name = '{node}'
+                AND node_info.pod_id = {task_info['data_id']};""")
+            data = cur.fetchone()
+            logger.debug(f"[task-{task_info['task_id']}][{node}] Data: {data}")
             if data is not None:
                 data_exists = True
 
-            node_id = conn.execute("SELECT id FROM node WHERE name = ?;", node).fetchone()[0]
-            buffer_time = get_buffer_time(node)
-            execution_time = get_execution_time(node, task_info['code_id'], task_info['data_id'], conn)
-            code_migration_time = get_code_migration_time(node_id, task_info['code_id'], conn)
+            cur.execute(f"SELECT id FROM node WHERE name = '{node}';")
+            node_id = cur.fetchone()[0]
+            logger.debug(f"[task-{task_info['task_id']}][{node}] Node ID: {node_id}")
+            buffer_time = get_buffer_time(node, logger)
+            logger.debug(f"[task-{task_info['task_id']}][{node}] Buffer Time: {buffer_time}")
+            execution_time = get_execution_time(node, task_info['code_id'], task_info['data_id'], conn, logger)
+            logger.debug(f"[task-{task_info['task_id']}][{node}] Execution Time: {execution_time}")
+            
+            if not code_exists:
+                code_migration_time = get_code_migration_time(node_id, task_info['code_id'], conn, logger)
+                logger.debug(f"[task-{task_info['task_id']}][{node}] Code Migration Time: {code_migration_time}")
+            # buffer_time = 30
+            # execution_time = 10
+            # code_migration_time = 5
 
-            node_from = conn.execute("\
-                                SELECT node_id FROM node_info \
-                                WHERE pod_type = 'data' AND pod_id = ?;", task_info['data_id']).fetchone()[0]
-            data_migration_time = get_data_migration_time(node_from, node_id, task_info['data_id'], conn)
+            if not data_exists:
+                cur.execute(f"""
+                    SELECT node_id FROM node_info
+                    WHERE pod_type = 'data' AND pod_id = {task_info['data_id']};""")
+                node_from = cur.fetchone()[0]
+                data_migration_time = get_data_migration_time(node_from, node_id, task_info['data_id'], conn, logger)
+                logger.debug(f"[task-{task_info['task_id']}][{node}] Data Migration Time: {data_migration_time}")
 
             if code_exists and data_exists:
                 # Calculate Completion Time
@@ -234,9 +256,10 @@ def evaluate_task(task_info):
             elif code_exists and not data_exists:
                 # Calculate Code Time
                 ## Buffer Time + Data Migration Time + Execution Time
-                node_from = conn.execute("\
-                                SELECT node_id FROM node_info \
-                                WHERE pod_type = 'data' AND pod_id = ?;", task_info['data_id']).fetchone()[0]
+                cur.execute(f"""
+                    SELECT node_id FROM node_info
+                    WHERE pod_type = 'data' AND pod_id = {task_info['data_id']};""")
+                node_from = cur.fetchone()[0]
                 completion_time = buffer_time + execution_time + data_migration_time
             elif not code_exists and data_exists:
                 # Calculate Data Time
@@ -245,26 +268,35 @@ def evaluate_task(task_info):
             else:
                 # Calculate Buffer Time
                 ## Buffer Time + max( Fetch Image + Data Migration Time ) + Execution Time
-                node_from = conn.execute("\
-                                SELECT node_id FROM node_info \
-                                WHERE pod_type = 'data' AND pod_id = ?;", task_info['data_id']).fetchone()[0]
+                cur.execute(f"""
+                    SELECT node_id FROM node_info 
+                    WHERE pod_type = 'data' AND pod_id = {task_info['data_id']};""")
+                node_from = cur.fetchone()[0]
                 migration_time = max(code_migration_time, data_migration_time)
                 completion_time = buffer_time + execution_time + migration_time
 
             if earliest_completion_time is None or completion_time < earliest_completion_time:
                 node_selection = node
                 earliest_completion_time = completion_time
+
+        cur.close()
         
+        logger.debug(f"[task-{task_info['task_id']}] Node Selection: {node_selection}")
         task_info['node_name'] = node_selection
-        task_info['execution_time'] = execution_time
-        task_info['earliest_completion_time'] = earliest_completion_time
+        logger.debug(f"[task-{task_info['task_id']}] Execution Time: {execution_time}")
+        task_info['execution_time'] = str(execution_time)
+        logger.debug(f"[task-{task_info['task_id']}] Earliest Completion Time: {earliest_completion_time}")
+        task_info['earliest_completion_time'] = str(earliest_completion_time)
+        # task_info['node_name'] = 'node'
+        # task_info['execution_time'] = 15
+        # task_info['earliest_completion_time'] = 25
         return task_info
     
     except Exception as e:
-        logger.error(f"Error evaluating task: {e}")
+        logger.error(f"[task-{task_info['task_id']}] Error evaluating task: {e}")
         return e
 
-def redis_init(r):
+def redis_init(r, logger):
     try:
         schema = (
             NumericField("$.task_id", as_name="task_id"),
