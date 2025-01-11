@@ -44,3 +44,43 @@ spec:
         name: pgadmin
         ports:
         - containerPort: 80
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: redisinsight
+  name: redisinsight
+  namespace: default
+spec:
+  ports:
+  - name: redisinsight-port
+    nodePort: 30170
+    port: 5540
+    targetPort: 5540
+  selector:
+    app: redisinsight
+  type: NodePort
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redisinsight
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redisinsight
+  template:
+    metadata:
+      labels:
+        app: redisinsight
+    spec:
+      containers:
+      - name: redisinsight
+        image: redis/redisinsight:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 5540
