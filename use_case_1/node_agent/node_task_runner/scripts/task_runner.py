@@ -57,6 +57,7 @@ def watch_job_completion(logger, task_id, namespace='default'):
                 if job.status.succeeded and job.status.succeeded >= 1:
                     task_info = redis.json().get(f"task:{task_id}")
                     task_info["time_completed"] = str(datetime.now())
+                    task_info["status"] = "completed"
                     redis.json().set(f"task:{task_id}", Path.root_path(), task_info)
 
                     conn = get_conn(logger)
@@ -69,6 +70,9 @@ def watch_job_completion(logger, task_id, namespace='default'):
                     logger.info(f"Job {job_name} completed successfully.")
                     break
                 elif job.status.failed and job.status.failed > 0:
+                    task_info = redis.json().get(f"task:{task_id}")
+                    task_info["status"] = "failed"
+                    redis.json().set(f"task:{task_id}", Path.root_path(), task_info)
                     logger.error(f"Job {job_name} failed.")
                     break
 
@@ -89,10 +93,24 @@ def listen_for_tasks(logger, r, interval=5):
                 
                 scheduler(logger, task_info)
                 watch_job_completion(logger, task_info["task_id"])
+                delete_job(v1_batch, f'task-{task_info["task_id"]}', logger)
             except Exception as e:
                 logger.error(f"Error processing task {task_name}: {e}")
         else:
             time.sleep(interval)
+
+def delete_job(v1_batch, job_name, logger):
+    try:
+        api_response = v1_batch.delete_namespaced_job(
+            name = job_name,
+            namespace = 'default',
+            body = client.V1DeleteOptions(
+                propagation_policy = 'Foreground',
+                grace_period_seconds = 0))
+        logger.info("Job deleted. status='%s'" % str(api_response.status))
+    except Exception as e:
+        logger.error(f"Error deleting job: {e}")
+        raise e
 
 def wait_redis(logger, host, port=6379, db=0, timeout=60, interval=5):
     start_time = time.time()
