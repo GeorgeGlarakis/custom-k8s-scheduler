@@ -1,9 +1,13 @@
 CREATE USER IF NOT EXISTS master_agent WITH PASSWORD 'master_password';
 CREATE DATABASE IF NOT EXISTS master_db;
-GRANT ALL PRIVILEGES ON DATABASE master_db TO master_agent;
-
 GRANT USAGE ON SCHEMA public TO master_agent;
-GRANT pg_write_all_data TO master_agent;
+GRANT SELECT, UPDATE, INSERT, DELETE ON ALL TABLES IN SCHEMA public TO master_agent;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+GRANT SELECT, UPDATE, INSERT, DELETE ON TABLES TO master_agent;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+GRANT USAGE ON SEQUENCES TO master_agent;
 
 --------------------------------------------------------------------------------
 
@@ -12,7 +16,8 @@ CREATE TABLE IF NOT EXISTS node (
     name VARCHAR(255) NOT NULL,
     cpu_speed INTEGER, -- MHz 10^6 Hz
     memory INTEGER,
-    disk_size INTEGER
+    disk_size INTEGER,
+    used_cpu_cycles INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS code (
@@ -50,7 +55,7 @@ CREATE TABLE IF NOT EXISTS compatible (
     PRIMARY KEY (code_id, data_id)
 );
 
-CREATE TYPE IF NOT EXISTS pod_type AS ENUM ('code', 'data');
+CREATE TYPE pod_type AS ENUM ('code', 'data');
 
 CREATE TABLE IF NOT EXISTS node_info (
     id SERIAL PRIMARY KEY,

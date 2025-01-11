@@ -77,3 +77,8 @@ cd /home/glarakis/ceid_thesis/custom-k8s-scheduler
 bash ./service_account.sh
 bash ./use_case_1/master_agent/master_agent_deployment.sh
 bash ./use_case_1/node_agent/node_agent_deployment.sh
+
+cd /home/glarakis/ceid_thesis/custom-k8s-scheduler/use_case_1/master_agent/postgres
+kubectl apply -f postgres-requirements.yml
+kubectl apply -f postgres-deployment.yml
+kubectl apply -f pgadmin_deployment.yml

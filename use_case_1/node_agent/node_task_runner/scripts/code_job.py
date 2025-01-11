@@ -17,6 +17,9 @@ def create_job_object(job_info, logger):
                     name = 'LOG_LEVEL',
                     value = LOG_LEVEL ),
                 client.V1EnvVar(
+                    name='TASK_ID',
+                    value=job_info['TASK_ID']),                
+                client.V1EnvVar(
                     name = 'DATA_ID',
                     value = job_info['DATA_ID']),
                 client.V1EnvVar(
@@ -123,6 +126,7 @@ if __name__ == '__main__':
     parser.add_argument('--image_tag',  dest='image_tag',   help='Image Tag',   required=True)
     parser.add_argument('--data_id',    dest='data_id',     help='Data ID',   required=True)
     parser.add_argument('--node_name',  dest='node_name',   help='Node Name',   required=True)
+    parser.add_argument('--task_id',    dest='task_id',     help='Task ID',   required=True)
     args = parser.parse_args()
 
     job_info = {
@@ -130,6 +134,7 @@ if __name__ == '__main__':
         'IMAGE_NAME' : args.image_name,
         'IMAGE_TAG'  : args.image_tag,
         'DATA_ID'    : args.data_id,
+        'TASK_ID'    : args.task_id,
         'NODE_NAME'  : args.node_name,
     }
 

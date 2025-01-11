@@ -6,6 +6,7 @@ import logging
 from redis.commands.json.path import Path
 import subprocess
 import psycopg2
+from datetime import datetime
 
 # Initialize environmental variables
 node_name = os.environ.get('NODE_NAME') 
@@ -18,6 +19,7 @@ def scheduler(logger, task_info):
             'IMAGE_NAME' : task_info["image"],
             'IMAGE_TAG'  : task_info["tag"],
             'DATA_ID'    : task_info["data_id"],
+            'TASK_ID'    : task_info["task_id"],
             'NODE_NAME'  : task_info["node_name"],
         }
 
@@ -25,7 +27,8 @@ def scheduler(logger, task_info):
                         "--job_name", job_info['JOB_NAME'], 
                         "--image_name", job_info['IMAGE_NAME'], 
                         "--image_tag", job_info['IMAGE_TAG'], 
-                        "--data_id", str(job_info['DATA_ID']), 
+                        "--data_id", str(job_info['DATA_ID']),
+                        "--task_id", str(job_info['TASK_ID']),
                         "--node_name", job_info['NODE_NAME']
                     ])
         
@@ -34,6 +37,9 @@ def scheduler(logger, task_info):
         cur.execute(f"UPDATE task SET time_started = CURRENT_TIMESTAMP WHERE id = {task_info['task_id']};")
         conn.commit()
         cur.close()
+
+        task_info["status"] = "running"
+        redis.json().set(f"task:{task_info['task_id']}", Path.root_path(), task_info)
     
         return job_info['JOB_NAME']
     except Exception as e:
@@ -45,65 +51,30 @@ def watch_job_completion(logger, task_id, namespace='default'):
     try:
         job_name = f'task-{task_id}'
         w = watch.Watch()
-        for event in w.stream(v1_events.list_namespaced_event, namespace=namespace):
-            if event['reason'] == "Completed":
-                job = event['object']
-                if job_name in job.metadata.name and \
-                    job.status.succeeded and job.status.succeeded >= 1:
+        for obj in w.stream(v1_batch.list_namespaced_job, namespace=namespace):
+            job = obj['object']
+            if job.metadata.name == job_name:
+                if job.status.succeeded and job.status.succeeded >= 1:
+                    task_info = redis.json().get(f"task:{task_id}")
+                    task_info["time_completed"] = str(datetime.now())
+                    redis.json().set(f"task:{task_id}", Path.root_path(), task_info)
 
                     conn = get_conn(logger)
                     cur = conn.cursor()
                     cur.execute(f"UPDATE task SET time_completed = CURRENT_TIMESTAMP WHERE id = {task_id};")
+                    cur.execute(f"UPDATE node SET used_cpu_cycles = used_cpu_cycles + {task_info['cpu_cycles']} WHERE name = '{task_info['node_name']}';")
                     conn.commit()
                     cur.close()
+
                     logger.info(f"Job {job_name} completed successfully.")
                     break
-                elif job_name in job.metadata.name and \
-                    job.status.failed and job.status.failed > 0:
-
+                elif job.status.failed and job.status.failed > 0:
                     logger.error(f"Job {job_name} failed.")
                     break
+
     except Exception as e:
         logger.error(f"Error watching job: {e}")
         return e
-    
-# from kubernetes import client, config, watch
-# import psycopg2
-# v1_events = client.EventsV1Api()
-# def get_conn():
-#     # Connect to PostgreSQL database
-#     conn = psycopg2.connect(
-#         host =     os.environ.get('POSTGRES_HOST', 'postgres.default.svc.cluster.local'),
-#         port =     os.environ.get('POSTGRES_PORT', 5432),
-#         database = os.environ.get('POSTGRES_DB', 'master_db'),
-#         user =     os.environ.get('POSTGRES_USER', 'master_agent'),
-#         password = os.environ.get('POSTGRES_PASSWORD', 'master_password')
-#     )
-#     return conn
-# def watch_job_completion(task_id, namespace='default'):
-#         job_name = f'task-{task_id}'
-#         w = watch.Watch()
-#         for event in w.stream(v1_events.list_namespaced_event, namespace=namespace):
-#             print(event)
-#             if event["reason"] == "Completed":
-#                 job = event['object']
-#                 if job_name in job.metadata.name and \
-#                     job.status.succeeded and job.status.succeeded >= 1:
-
-#                     conn = get_conn(logger)
-#                     cur = conn.cursor()
-#                     cur.execute(f"UPDATE task SET time_completed = CURRENT_TIMESTAMP WHERE id = {task_id};")
-#                     conn.commit()
-#                     cur.close()
-
-#                     print(f"Job {job_name} completed successfully.")
-#                     break
-#                 elif job_name in job.metadata.name and \
-#                     job.status.failed and job.status.failed > 0:
-
-#                     print(f"Job {job_name} failed.")
-#                     break
-# watch_job_completion(33)
 
 def listen_for_tasks(logger, r, interval=5):
     while True:

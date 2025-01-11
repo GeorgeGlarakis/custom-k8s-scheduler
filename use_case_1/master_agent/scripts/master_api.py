@@ -120,7 +120,8 @@ def create_task():
         "execution_time": "",
         "status": "listed",
         "time_created": str(datetime.now()),
-        "time_completed": ""
+        "time_completed": "",
+        "cpu_cycles": ""
     }
 
     task_info["image"], task_info["tag"] = master_code.get_code_image(code_id, conn, logger)
