@@ -102,6 +102,7 @@ def get_compatible():
 @app.route('/api/v1/task', methods=['POST', 'GET'])
 def create_task():
     body = request.get_json()
+    policy = body['policy']
     code_id = body['code_id']
     data_id = body['data_id']
 
@@ -127,7 +128,12 @@ def create_task():
     task_info["image"], task_info["tag"] = master_code.get_code_image(code_id, conn, logger)
 
     # Trigger evaluation of code, data and node
-    task_info = master_code.evaluate_task(task_info, conn, v1_core, logger)
+    if policy == "earliest":
+        task_info = master_code.get_earliest_completion_time(task_info, conn, v1_core, logger)
+    elif policy == "fairness":
+        task_info = master_code.get_fairness(task_info, conn, v1_core, logger)
+    else:
+        return jsonify("{'error':'unkown policy'}", status=400)
     
     master_code.set_task(task_info, logger)
     cur.execute(f"""UPDATE task 

@@ -23,39 +23,6 @@ def get_nodes(v1_core):
     node_names = [node.metadata.name for node in nodes.items]
     return node_names
 
-# Evaluate most suitable node for deployment
-def node_evaluation(pod, v1_core, logger):
-    # Get list of nodes and randomly select one
-    nodes = get_nodes(v1_core)
-    assigned_node = random.choice(nodes)
-    logger.info(f"Assigning to node: {assigned_node}")
-
-    ################################################################################
-    # Data Migration Job
-    # python3 migration_job.py --source_node 'node-m02' --destination_node 'node' --data_deployment_name 'data-1'
-
-    # migration_object = {
-    #     'source_node': "",
-    #     'destination_node': "",
-    #     'data_deployment_name': pod.metadata.labels['data_id']
-    # }
-
-    # migration_job.main(migration_object)
-
-    ################################################################################
-
-    # Assign the deployment to the selected node
-    assign_to_node(pod, assigned_node, logger)
-
-def assign_to_node(pod, assigned_node, logger):
-    try:
-        node_r = redis.Redis(host=f'{assigned_node}-redis-service', port=6379)
-        pod_name = pod.metadata.name
-        node_r.hset("pending_deployments", pod_name, pod.metadata.name)
-        node_r.lpush("pending_tasks", pod_name)
-    except Exception as e:
-        logger.error(f"Error assigning pod to node {assigned_node}: {e}")
-
 def get_node_images(v1_core, node_name, logger):
     try:
         node = v1_core.list_node(field_selector=f"metadata.name={node_name}")
@@ -100,21 +67,24 @@ def set_task(task, logger):
         logger.error(f"Error setting task: {e}")
         return e
 
-    
 def get_buffer_time(node_name, logger):
     try:
         node_r = redis.Redis(host=f'{node_name}-worker-redis-service', port=6379)
         redis_init(node_r, logger)
         rs = node_r.ft("task:index")
-        pending_tasks = rs.search(
-            Query("@status:pending").return_fields("task_id", "execution_time")
-        )
+        q = Query("@status:pending").return_fields("execution_time")
+        pending_tasks = rs.search(q.paging(0, 10))
 
+        total_results = pending_tasks.total
         buffer_time = 0
-        for task in pending_tasks.docs:
-            buffer_time += int(task["execution_time"])
+        offset = 0
 
-        logger.debug(f"[{node_name}] Buffer time: {buffer_time}")
+        while offset < total_results:
+            pending_tasks = rs.search(q.paging(offset, 10))
+
+            for task in pending_tasks.docs:
+                buffer_time += float(task["execution_time"])
+            offset += 10
         return buffer_time
 
     except Exception as e:
@@ -130,23 +100,29 @@ def get_execution_time(node_name, code_id, data_id, conn, logger):
             SELECT cpu_speed FROM node
             WHERE name = '{node_name}';""")
         cpu_speed = cur.fetchone()[0]
+        logger.debug(f"[{node_name}] CPU Speed: {cpu_speed}")
         cur.execute(f"""
             SELECT complexity FROM code
             WHERE id = {code_id};""")
         complexity = cur.fetchone()[0]
+        logger.debug(f"[code-{code_id}] Complexity: {complexity}")
         cur.execute(f"""
             SELECT count_n FROM data
             WHERE id = {data_id};""")
         count_n = cur.fetchone()[0]
+        logger.debug(f"[data-{data_id}] Count: {count_n}")
         
         # O(n) | O(n^2) | O(n*log(n)) 
         case = complexity.lower()
-        if case == "O(n)":
+        if case == "O(n)".lower():
             execution_time = count_n / ( cpu_speed * cpu_speed_devider )
-        elif case == "O(n^2)":
+        elif case == "O(n^2)".lower():
             execution_time = ( count_n ^ 2 ) / ( cpu_speed * cpu_speed_devider )
-        elif case == "O(n*log(n))":
+        elif case == "O(n*log(n))".lower():
             execution_time = ( count_n * math.log(count_n) ) / ( cpu_speed * cpu_speed_devider )
+        else:
+            logger.error(f"[code-{code_id}] Unknown complexity: {complexity}")
+            return None
         
         cur.close()        
         return execution_time
@@ -190,7 +166,7 @@ def get_data_migration_time(node_from, node_to, data_id, conn, logger):
         logger.error(f"Error calculating data migration time: {e}")
         return None
     
-def evaluate_task(task_info, conn, v1_core, logger):
+def get_earliest_completion_time(task_info, conn, v1_core, logger):
     try:
         earliest_completion_time = None
         node_selection = None
@@ -252,7 +228,7 @@ def evaluate_task(task_info, conn, v1_core, logger):
             if code_exists and data_exists:
                 # Calculate Completion Time
                 ## Buffer Time + Execution Time
-                completion_time = buffer_time + execution_time
+                completion_time = float(buffer_time) + float(execution_time)
             elif code_exists and not data_exists:
                 # Calculate Code Time
                 ## Buffer Time + Data Migration Time + Execution Time
@@ -260,11 +236,11 @@ def evaluate_task(task_info, conn, v1_core, logger):
                     SELECT node_id FROM node_info
                     WHERE pod_type = 'data' AND pod_id = {task_info['data_id']};""")
                 node_from = cur.fetchone()[0]
-                completion_time = buffer_time + execution_time + data_migration_time
+                completion_time = float(buffer_time) + float(execution_time) + float(data_migration_time)
             elif not code_exists and data_exists:
                 # Calculate Data Time
                 ## Buffer Time + Fetch Image + Execution Time
-                completion_time = buffer_time + execution_time + code_migration_time
+                completion_time = float(buffer_time) + float(execution_time) + float(code_migration_time)
             else:
                 # Calculate Buffer Time
                 ## Buffer Time + max( Fetch Image + Data Migration Time ) + Execution Time
@@ -273,7 +249,7 @@ def evaluate_task(task_info, conn, v1_core, logger):
                     WHERE pod_type = 'data' AND pod_id = {task_info['data_id']};""")
                 node_from = cur.fetchone()[0]
                 migration_time = max(code_migration_time, data_migration_time)
-                completion_time = buffer_time + execution_time + migration_time
+                completion_time = float(buffer_time) + float(execution_time) + float(migration_time)
 
             if earliest_completion_time is None or completion_time < earliest_completion_time:
                 node_selection = node
@@ -295,18 +271,55 @@ def evaluate_task(task_info, conn, v1_core, logger):
     except Exception as e:
         logger.error(f"[task-{task_info['task_id']}] Error evaluating task: {e}")
         return e
+    
+def get_fairness(task_info, conn, v1_core, logger):
+    try:
+        cur = conn.cursor()
+        cur.execute(f"""SELECT name, used_cpu_cycles FROM node;""")
+        nodes = cur.fetchall()
+
+        node_name_flag = ""
+        node_used_cycles_flag = -1
+        for node in nodes:
+            node_name = node[0]
+            node_used_cycles = node[1]
+
+            if node_used_cycles_flag == -1:
+                node_name_flag = node_name
+                node_used_cycles_flag = node_used_cycles
+                continue
+            
+            if node_used_cycles < node_used_cycles_flag:
+                node_name_flag = node_name
+                node_used_cycles_flag = node_used_cycles
+
+        cur.close()
+
+        task_info = get_earliest_completion_time(task_info, conn, v1_core, logger)
+        task_info['node_name'] = node_name_flag
+
+        return task_info
+    
+    except Exception as e:
+        logger.error(f"[task-{task_info['task_id']}] Error evaluating task: {e}")
+        return e
+
+
+
+
+    
 
 def redis_init(r, logger):
     try:
         schema = (
-            NumericField("$.task_id", as_name="task_id"),
-            NumericField("$.code_id", as_name="code_id"),
-            NumericField("$.data_id", as_name="data_id"),
-            TextField("$.node_name", as_name="node_name"),
-            NumericField("$.execution_time", as_name="execution_time"),
+            # NumericField("$.task_id", as_name="task_id"),
+            # NumericField("$.code_id", as_name="code_id"),
+            # NumericField("$.data_id", as_name="data_id"),
+            # TextField("$.node_name", as_name="node_name"),
+            TextField("$.execution_time", as_name="execution_time"),
             TextField("$.status", as_name="status"),
-            TextField("$.time_created", as_name="time_created"),
-            TextField("$.time_completed", as_name="time_completed")
+            # TextField("$.time_created", as_name="time_created"),
+            # TextField("$.time_completed", as_name="time_completed")
         )
 
         rs = r.ft("task:index")
@@ -363,6 +376,3 @@ if __name__ == "__main__":
     v1_apps = client.AppsV1Api()
     v1_core = client.CoreV1Api()
     v1_batch = client.BatchV1Api()
-
-    logger.info("Starting master agent...")
-    watch_deployments()
