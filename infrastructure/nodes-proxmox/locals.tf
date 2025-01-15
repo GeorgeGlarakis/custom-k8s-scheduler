@@ -12,7 +12,7 @@ locals {
         master = {
             nameserver = "master"
 
-            memory = 2048
+            memory = 3072
             cpu_cores = 2
 
             disks = {
@@ -30,17 +30,17 @@ locals {
                 disk_size = "32G" 
             }
         },
-        worker-2 = {
-            nameserver = "worker-2"
+        # worker-2 = {
+        #     nameserver = "worker-2"
 
-            memory = 1024
-            cpu_cores = 1
+        #     memory = 1024
+        #     cpu_cores = 1
 
-            disks = {
-                iso_file = local.iso_file
-                disk_size = "32G" 
-            }
-        },
+        #     disks = {
+        #         iso_file = local.iso_file
+        #         disk_size = "32G" 
+        #     }
+        # },
     }
 
     tags = "managed_by_terraform"
