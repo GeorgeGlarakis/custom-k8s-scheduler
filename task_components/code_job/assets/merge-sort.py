@@ -1,6 +1,6 @@
 # Time Complexity: O(n*log(n))
 # Space Complexity: O(log(n))
-def merge(arr, left, mid, right):
+def merge(arr, left, mid, right, counter):
     n1 = mid - left + 1
     n2 = right - mid
 
@@ -21,12 +21,17 @@ def merge(arr, left, mid, right):
     # Merge the temp arrays back
     # into arr[left..right]
     while i < n1 and j < n2:
+        counter.count_comparison()
         if L[i] <= R[j]:
             arr[k] = L[i]
             i += 1
+            counter.count_comparison()
+            counter.count_swap()
         else:
             arr[k] = R[j]
             j += 1
+            counter.count_comparison()
+            counter.count_swap()
         k += 1
 
     # Copy the remaining elements of L[],
@@ -35,6 +40,8 @@ def merge(arr, left, mid, right):
         arr[k] = L[i]
         i += 1
         k += 1
+        counter.count_comparison()
+        counter.count_swap()
 
     # Copy the remaining elements of R[], 
     # if there are any
@@ -42,16 +49,19 @@ def merge(arr, left, mid, right):
         arr[k] = R[j]
         j += 1
         k += 1
+        counter.count_comparison()
+        counter.count_swap()
 
-def merge_sort(arr, left, right):
+def merge_sort(arr, left, right, counter):
     if left < right:
         mid = (left + right) // 2
 
-        merge_sort(arr, left, mid)
-        merge_sort(arr, mid + 1, right)
-        merge(arr, left, mid, right)
+        merge_sort(arr, left, mid, counter)
+        merge_sort(arr, mid + 1, right, counter)
+        merge(arr, left, mid, right, counter)
 
+    counter.count_comparison()
     return arr
 
-def main(array):
-    return merge_sort(array, 0, len(array) - 1)
+def main(array, counter):
+    return merge_sort(array, 0, len(array) - 1, counter)

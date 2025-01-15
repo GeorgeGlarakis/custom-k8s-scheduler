@@ -3,7 +3,7 @@
 docker build -t "glarakis99/init-data" .
 docker push "glarakis99/init-data:latest"
 
-NODE_NAME=node
+NODE_NAME=master
 
 cat <<EOF | kubectl apply -f -
 apiVersion: batch/v1

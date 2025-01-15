@@ -60,10 +60,12 @@ def watch_job_completion(logger, task_id, namespace='default'):
                     task_info["status"] = "completed"
                     redis.json().set(f"task:{task_id}", Path.root_path(), task_info)
 
+                    operation_counts = task_info["operation_counts"]["total_operations"]
+
                     conn = get_conn(logger)
                     cur = conn.cursor()
                     cur.execute(f"UPDATE task SET time_completed = CURRENT_TIMESTAMP WHERE id = {task_id};")
-                    cur.execute(f"UPDATE node SET used_cpu_cycles = used_cpu_cycles + {task_info['cpu_cycles']} WHERE name = '{task_info['node_name']}';")
+                    cur.execute(f"UPDATE node SET used_cpu_cycles = used_cpu_cycles + {operation_counts} WHERE name = '{task_info['node_name']}';")
                     conn.commit()
                     cur.close()
 

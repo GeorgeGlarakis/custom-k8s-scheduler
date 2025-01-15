@@ -1,6 +1,6 @@
 # Time Complexity: O(n^2)
 # Space Complexity: O(1)
-def bubbleSort(arr):
+def bubbleSort(arr, counter):
     
     n = len(arr)
 
@@ -14,8 +14,11 @@ def bubbleSort(arr):
             #is greater than the adjacent element
             if arr[j] > arr[j + 1]:
                 arr[j], arr[j + 1] = arr[j + 1], arr[j]
+                counter.count_swap()
+
+            counter.count_comparison()
                 
     return arr
 
-def main(array):
-    return bubbleSort(array)
+def main(array, counter):
+    return bubbleSort(array, counter)

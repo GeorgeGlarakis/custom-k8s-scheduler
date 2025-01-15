@@ -1,5 +1,5 @@
-CREATE USER IF NOT EXISTS master_agent WITH PASSWORD 'master_password';
-CREATE DATABASE IF NOT EXISTS master_db;
+CREATE USER master_agent WITH PASSWORD 'master_password';
+-- CREATE DATABASE IF NOT EXISTS master_db;
 GRANT USAGE ON SCHEMA public TO master_agent;
 GRANT SELECT, UPDATE, INSERT, DELETE ON ALL TABLES IN SCHEMA public TO master_agent;
 
@@ -80,7 +80,9 @@ INSERT INTO code (name, image, tag, complexity, size_mb) VALUES
 ('bubble-sort', 'code-job-bubble-sort', '1.1.0', 'O(n^2)', 991);
 
 INSERT INTO node (name, cpu_speed, memory, disk_size) VALUES
-('node-m02', 1000000, 2048, 100),
-('node-m03', 1000000, 2048, 100);
+('master', 2, 16048, 100),
+('worker-1', 1, 2048, 100);
 
 INSERT INTO node_latency (node_from, node_to, latency_ms) VALUES
+(1, 2, 1000),
+(2, 1, 5000);
