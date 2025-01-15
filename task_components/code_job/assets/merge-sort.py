@@ -54,4 +54,4 @@ def merge_sort(arr, left, right):
     return arr
 
 def main(array):
-    return merge_sort(array)
+    return merge_sort(array, 0, len(array) - 1)

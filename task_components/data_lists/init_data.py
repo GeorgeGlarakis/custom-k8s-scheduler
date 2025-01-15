@@ -1,3 +1,4 @@
+import os
 import redis
 from redis.commands.json.path import Path
 import psycopg2
@@ -6,8 +7,10 @@ import numpy as np
 list_count = 10
 step = 10
 
+node_name = os.environ.get('NODE_NAME', 'node')
+
 redis_info = {
-    "host": "node-worker-redis-service.default.svc.cluster.local",
+    "host": f"{node_name}-worker-redis-service.default.svc.cluster.local",
     "port": 6379,
     "db": 0
 }
@@ -46,6 +49,10 @@ if __name__ == "__main__":
             cur = conn.cursor()
             cur.execute(f"INSERT INTO data (name, count_n) VALUES ('data-{count_n}', {count_n}) RETURNING id")
             data_id = cur.fetchone()[0]
+
+            cur.execute(f"""INSERT INTO node_info (node_id, pod_id, pod_type) 
+                            SELECT id, '{data_id}', 'data' FROM node WHERE name = '{node_name}';
+                        """)
 
             r.json().set(f"data:{data_id}", Path.root_path(), {"list": list.tolist()})
 

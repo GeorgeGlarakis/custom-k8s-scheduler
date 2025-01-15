@@ -18,4 +18,8 @@ def selectionSort(array, size):
     return array
 
 def main(array):
-    return selectionSort(array)
+    return selectionSort(array, len(array))
+
+if __name__ == "__main__":
+    my_array = [6, 3, 8, 9, 10, 1, 2, 11, 4, 5]
+    print(main(my_array))
