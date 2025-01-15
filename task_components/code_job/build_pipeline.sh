@@ -35,12 +35,18 @@ EOL
     image_size=$(docker image inspect "glarakis99/code-job-$code_name:$tag" --format='{{.Size}}')
     image_size_mb=$((image_size / 1024 / 1024))
 
-    echo "('$code_name', 'code-job-$code_name', '$tag', $image_size_mb)," >> insert_code.sql
+    if [[ $code_name == "bubble-sort" || $code_name == "selection-sort" || $code_name == "insertion-sort" ]]; then
+        complexity="O(n^2)"
+    elif [[ $code_name == "merge-sort" ]]; then
+        complexity="O(n*log(n))"
+    fi
+
+    echo "('$code_name', 'code-job-$code_name', '$tag', '$complexity', $image_size_mb)," >> insert_code.sql
 
     rm Dockerfile-$code_name
 }
 
-echo "INSERT INTO code (name, image, tag, size_mb) VALUES" >> insert_code.sql
+echo "INSERT INTO code (name, image, tag, complexity, size_mb) VALUES" >> insert_code.sql
 for code_path in "${code_jobs[@]}"; do
     if [[ $(basename "$code_path") == main.py ]]; then
         continue
