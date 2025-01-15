@@ -2,7 +2,7 @@
 
 # NODES=$(kubectl get nodes -l role=worker -o jsonpath='{.items[*].metadata.name}')
 NODES=$(kubectl get nodes -o jsonpath='{.items[*].metadata.name}')
-PV_MOUNT_PATH="/mnt/data"
+LOG_LEVEL="DEBUG"
 
 for NODE in $NODES; do
   cat <<EOF | kubectl apply -f -
@@ -32,6 +32,8 @@ spec:
         env:
         - name: NODE_NAME
           value: $NODE
+        - name: LOG_LEVEL
+          value: $LOG_LEVEL
         imagePullPolicy: Always
       affinity:
         nodeAffinity:
@@ -88,6 +90,8 @@ spec:
         env:
         - name: NODE_NAME
           value: $NODE
+        - name: LOG_LEVEL
+          value: $LOG_LEVEL
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -143,6 +147,8 @@ spec:
         env:
         - name: NODE_NAME
           value: $NODE
+        - name: LOG_LEVEL
+          value: $LOG_LEVEL
         imagePullPolicy: Always
       affinity:
         nodeAffinity:

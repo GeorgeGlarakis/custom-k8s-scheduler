@@ -10,6 +10,7 @@ import time
 import os
 import logging
 import math
+import requests
 import migration_job
 
 # Initialize environmental variables
@@ -59,18 +60,20 @@ def get_code_image(code_id, conn, logger):
 def set_task(task, logger):
     try:
         task["status"] = "pending"
-        node_r = redis.Redis(host=f'{task["node_name"]}-worker-redis-service', port=6379)
+        node_r = wait_redis(logger, host=f'{task["node_name"]}-worker-redis-service')
         node_r.json().set(f"task:{task['task_id']}", Path.root_path(), task)
         node_r.lpush("pending_tasks", task["task_id"])
+        logger.debug(f"[task-{task['task_id']}] Task set successfully.")
+        return True
     
     except Exception as e:
         logger.error(f"Error setting task: {e}")
-        return e
+        return False
 
 def get_buffer_time(node_name, logger):
     try:
-        node_r = redis.Redis(host=f'{node_name}-worker-redis-service', port=6379)
-        redis_init(node_r, logger)
+        node_r = wait_redis(logger, host=f'{node_name}-worker-redis-service')
+        redis_init_index(node_r, logger)
         rs = node_r.ft("task:index")
         q = Query("@status:pending").return_fields("execution_time")
         pending_tasks = rs.search(q.paging(0, 10))
@@ -153,9 +156,13 @@ def get_data_migration_time(node_from, node_to, data_id, conn, logger):
         cur = conn.cursor()
         cur.execute(f"SELECT size_mb FROM data WHERE id = {data_id};")
         data_size = cur.fetchone()[0]
-        cur.execute(f"SELECT latency_ms FROM node_latency WHERE node_from = {node_from} AND node_to = {node_to};")
+        cur.execute(f"""
+                    SELECT latency_ms FROM node_latency 
+                    WHERE node_from = {node_from}
+                    AND node_to = {node_to};
+                    """)
         node_latency = cur.fetchone()[0]
-        network_speed = 1 # Mbps
+        network_speed = 1
 
         get_data_migration_time = ( data_size / network_speed ) + node_latency
 
@@ -166,6 +173,55 @@ def get_data_migration_time(node_from, node_to, data_id, conn, logger):
         logger.error(f"Error calculating data migration time: {e}")
         return None
     
+def migrate_data(task_info, conn, logger):
+    try:
+        cur = conn.cursor()
+        cur.execute(f"""
+            SELECT n.name FROM node_info ni
+            INNER JOIN node n ON ni.node_id = n.id
+            INNER JOIN node_latency nl ON nl.node_from = ni.node_id
+            WHERE ni.pod_type = 'data' AND ni.pod_id = {task_info['data_id']}
+            AND nl.node_to IN (SELECT id FROM node WHERE name = '{task_info['node_name']}')
+            ORDER BY nl.latency_ms ASC
+            LIMIT 1;
+            """)
+        node_from = cur.fetchone()[0]
+
+        url = f"http://{task_info["node_name"]}-worker-agent-service.default.svc.cluster.local:8080/api/v1/migrate_data"
+        body = {
+            "node_name": node_from,
+            "data_id": task_info["data_id"]
+        }
+        response = requests.post(url, json=body)
+        migrate_data = response.json()
+
+        if 'error' in migrate_data:
+            logger.error(f"[task-{task_info['task_id']}] Data migration failed: {migrate_data['error']}")
+            return False
+
+        # Copy data
+        cur.execute(f"""
+            INSERT INTO node_info (node_id, pod_id, pod_type)
+            SELECT node.id, {task_info['data_id']}, 'data' FROM node
+            WHERE name = '{task_info['node_name']}';
+            """)
+        
+        # # Move data
+        # cur.execute(f"""
+        #     UPDATE node_info
+        #     SET node_id = (SELECT id FROM node WHERE name = '{task_info['node_name']}')
+        #     WHERE pod_id = {task_info['data_id']} AND pod_type = 'data';
+        #     """)
+
+        conn.commit()
+        cur.close()
+        return True
+        
+    except Exception as e:
+        logger.error(f"[task-{task_info['task_id']}] Error migrating data: {e}")
+        return False
+
+    
 def get_earliest_completion_time(task_info, conn, v1_core, logger):
     try:
         earliest_completion_time = None
@@ -173,12 +229,14 @@ def get_earliest_completion_time(task_info, conn, v1_core, logger):
         # Evaluate each node
         nodes = get_nodes(v1_core)
 
+        node_info = {}
+
         cur = conn.cursor()
         for node in nodes:
             logger.debug(f"[task-{task_info['task_id']}] Evaluating node: {node}")
 
             # Check if node has code and data
-            code_exists = False
+            this_node_info = {"code_exists":False, "data_exists":False}
             cur.execute(f"""
                 SELECT 1 FROM node_info
                 INNER JOIN node ON node_info.node_id = node.id
@@ -188,9 +246,8 @@ def get_earliest_completion_time(task_info, conn, v1_core, logger):
             code = cur.fetchone()
             logger.debug(f"[task-{task_info['task_id']}][{node}] Code: {code}")
             if code is not None:
-                code_exists = True
-
-            data_exists = False           
+                this_node_info["code_exists"] = True
+        
             cur.execute(f"""
                 SELECT 1 FROM node_info
                 INNER JOIN node ON node_info.node_id = node.id
@@ -200,7 +257,7 @@ def get_earliest_completion_time(task_info, conn, v1_core, logger):
             data = cur.fetchone()
             logger.debug(f"[task-{task_info['task_id']}][{node}] Data: {data}")
             if data is not None:
-                data_exists = True
+                this_node_info["data_exists"] = True
 
             cur.execute(f"SELECT id FROM node WHERE name = '{node}';")
             node_id = cur.fetchone()[0]
@@ -210,50 +267,47 @@ def get_earliest_completion_time(task_info, conn, v1_core, logger):
             execution_time = get_execution_time(node, task_info['code_id'], task_info['data_id'], conn, logger)
             logger.debug(f"[task-{task_info['task_id']}][{node}] Execution Time: {execution_time}")
             
-            if not code_exists:
+            if not this_node_info["code_exists"]:
                 code_migration_time = get_code_migration_time(node_id, task_info['code_id'], conn, logger)
                 logger.debug(f"[task-{task_info['task_id']}][{node}] Code Migration Time: {code_migration_time}")
-            # buffer_time = 30
-            # execution_time = 10
-            # code_migration_time = 5
 
-            if not data_exists:
+            if not this_node_info["data_exists"]:
                 cur.execute(f"""
-                    SELECT node_id FROM node_info
-                    WHERE pod_type = 'data' AND pod_id = {task_info['data_id']};""")
+                    SELECT n.id FROM node_info ni
+                    INNER JOIN node n ON ni.node_id = n.id
+                    INNER JOIN node_latency nl ON nl.node_from = ni.node_id
+                    WHERE ni.pod_type = 'data' AND ni.pod_id = {task_info['data_id']}
+                    AND nl.node_to IN (SELECT id FROM node WHERE name = '{node}')
+                    ORDER BY nl.latency_ms ASC
+                    LIMIT 1;
+                    """)
                 node_from = cur.fetchone()[0]
                 data_migration_time = get_data_migration_time(node_from, node_id, task_info['data_id'], conn, logger)
                 logger.debug(f"[task-{task_info['task_id']}][{node}] Data Migration Time: {data_migration_time}")
 
-            if code_exists and data_exists:
+            if this_node_info["code_exists"] and this_node_info["data_exists"]:
                 # Calculate Completion Time
                 ## Buffer Time + Execution Time
                 completion_time = float(buffer_time) + float(execution_time)
-            elif code_exists and not data_exists:
+            elif this_node_info["code_exists"] and not this_node_info["data_exists"]:
                 # Calculate Code Time
                 ## Buffer Time + Data Migration Time + Execution Time
-                cur.execute(f"""
-                    SELECT node_id FROM node_info
-                    WHERE pod_type = 'data' AND pod_id = {task_info['data_id']};""")
-                node_from = cur.fetchone()[0]
                 completion_time = float(buffer_time) + float(execution_time) + float(data_migration_time)
-            elif not code_exists and data_exists:
+            elif not this_node_info["code_exists"] and this_node_info["data_exists"]:
                 # Calculate Data Time
                 ## Buffer Time + Fetch Image + Execution Time
                 completion_time = float(buffer_time) + float(execution_time) + float(code_migration_time)
             else:
                 # Calculate Buffer Time
                 ## Buffer Time + max( Fetch Image + Data Migration Time ) + Execution Time
-                cur.execute(f"""
-                    SELECT node_id FROM node_info 
-                    WHERE pod_type = 'data' AND pod_id = {task_info['data_id']};""")
-                node_from = cur.fetchone()[0]
                 migration_time = max(code_migration_time, data_migration_time)
                 completion_time = float(buffer_time) + float(execution_time) + float(migration_time)
 
             if earliest_completion_time is None or completion_time < earliest_completion_time:
                 node_selection = node
                 earliest_completion_time = completion_time
+
+            node_info[node] = this_node_info
 
         cur.close()
         
@@ -263,9 +317,8 @@ def get_earliest_completion_time(task_info, conn, v1_core, logger):
         task_info['execution_time'] = str(execution_time)
         logger.debug(f"[task-{task_info['task_id']}] Earliest Completion Time: {earliest_completion_time}")
         task_info['earliest_completion_time'] = str(earliest_completion_time)
-        # task_info['node_name'] = 'node'
-        # task_info['execution_time'] = 15
-        # task_info['earliest_completion_time'] = 25
+
+        task_info['node_info'] = node_info
         return task_info
     
     except Exception as e:
@@ -305,21 +358,60 @@ def get_fairness(task_info, conn, v1_core, logger):
         return e
 
 
+def evaluate_task(task_info, conn, v1_core, logger):
+    try:
+        cur = conn.cursor()
 
+        task_info["image"], task_info["tag"] = get_code_image(task_info["code_id"], conn, logger)
 
+        if task_info["policy"] == "earliest":
+            task_info = get_earliest_completion_time(task_info, conn, v1_core, logger)
+        elif task_info["policy"] == "fairness":
+            task_info = get_fairness(task_info, conn, v1_core, logger)
+        else:
+            return {'error':'unkown policy'}
+        
+        logger.debug(f"[task-{task_info['task_id']}]: {task_info}")
+        
+        if not task_info["node_info"][task_info["node_name"]]["data_exists"]:
+            if not migrate_data(task_info, conn, logger):
+                return {'error':'migrate_data() failed'}
+            
+        if not task_info["node_info"][task_info["node_name"]]["code_exists"]:
+            cur.execute(f"""
+                INSERT INTO node_info (node_id, pod_id, pod_type)
+                SELECT node.id, {task_info['code_id']}, 'code' FROM node
+                WHERE name = '{task_info['node_name']}';
+                """)
+            conn.commit()
+        
+        if set_task(task_info, logger):
+            cur.execute(f"""
+                UPDATE task 
+                SET node_id = node.id
+                    , time_scheduled=CURRENT_TIMESTAMP
+                    , execution_prediction_ms = {task_info['execution_time']}
+                    , completion_prediction_ms = {task_info['earliest_completion_time']}
+                FROM node
+                WHERE task.id = {task_info['task_id']}
+                AND node.name = '{task_info['node_name']}';""")
+            conn.commit()
+            cur.close()
+        else:
+            return {'error':'set_task() failed'}
+
+        return {'status':'scheduled'}
+    
+    except Exception as e:
+        logger.error(f"[task-{task_info['task_id']}] Error evaluating task: {e}")
+        return {'error':e}
     
 
-def redis_init(r, logger):
+def redis_init_index(r, logger):
     try:
         schema = (
-            # NumericField("$.task_id", as_name="task_id"),
-            # NumericField("$.code_id", as_name="code_id"),
-            # NumericField("$.data_id", as_name="data_id"),
-            # TextField("$.node_name", as_name="node_name"),
             TextField("$.execution_time", as_name="execution_time"),
-            TextField("$.status", as_name="status"),
-            # TextField("$.time_created", as_name="time_created"),
-            # TextField("$.time_completed", as_name="time_completed")
+            TextField("$.status", as_name="status")
         )
 
         rs = r.ft("task:index")
@@ -329,7 +421,7 @@ def redis_init(r, logger):
         logger.error(f"Error redis_init: {e}")
 
     
-def wait_redis(host, port=6379, db=0, timeout=60, interval=5):
+def wait_redis(logger, host, port=6379, db=0, timeout=60, interval=5):
     start_time = time.time()
     r = redis.Redis(host=host, port=port, db=db)
 
@@ -349,30 +441,3 @@ def wait_redis(host, port=6379, db=0, timeout=60, interval=5):
 
         logger.info(f"Waiting for Redis... ({elapsed_time:.1f}s elapsed)")
         time.sleep(interval)
-
-if __name__ == "__main__":
-    # Load Kubernetes configuration
-    # config.load_kube_config() ## <-- for debugging, running outside the cluster
-    config.load_incluster_config()
-
-    # Initialize logger
-    logger = logging.getLogger(__name__)
-    logging.basicConfig(filename='master_agent_logfile.log', encoding='utf-8', level=logging.DEBUG)
-
-    # Initialize Redis (or use any other store)
-    redis = wait_redis(host=f'{this_node}-master-redis-service')
-    redis_init(redis)
-
-    # Initialize Postgres
-    conn = psycopg2.connect(
-        host =     os.environ.get('POSTGRES_HOST', 'postgres.default.svc.cluster.local'),
-        port =     os.environ.get('POSTGRES_PORT', 5432),
-        database = os.environ.get('POSTGRES_DB', 'master_db'),
-        user =     os.environ.get('POSTGRES_USER', 'master_agent'),
-        password = os.environ.get('POSTGRES_PASSWORD', 'master_password')
-    )
-
-    # Set up Kubernetes API client
-    v1_apps = client.AppsV1Api()
-    v1_core = client.CoreV1Api()
-    v1_batch = client.BatchV1Api()

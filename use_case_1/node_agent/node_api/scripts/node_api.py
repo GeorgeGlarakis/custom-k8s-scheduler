@@ -10,14 +10,12 @@ import requests
 import node_code
 
 # Initialize environmental variables
-node_name = os.environ.get('NODE_NAME') 
-log_level = os.environ.get('LOG_LEVEL', 'INFO').upper()
+this_node = os.environ.get('NODE_NAME') 
+log_level = os.environ.get('LOG_LEVEL', 'DEBUG').upper()
 
 # Initialize logger
 logger = logging.getLogger(__name__)
 logging.basicConfig(filename='node_agent_logfile.log', encoding='utf-8', level=log_level)
-
-redis = node_code.wait_redis(logger, host=f'{node_name}-worker-redis-service')
 
 app = Flask(__name__)
 CORS(app)
@@ -37,8 +35,11 @@ def migrate_data():
     node_name = body['node_name']
     data_id = body['data_id']
 
-    result = node_code.get_data(logger,redis, node_name, data_id)
-    return jsonify({'result': result})
+    result = node_code.get_data(logger, this_node, node_name, data_id)
+    if result:
+        return jsonify({'status':'success'}), 200
+    else:
+        return jsonify({'error':'failed'}), 400
 
 ################################################################################
 
@@ -46,15 +47,16 @@ def migrate_data():
 @app.route('/api/v1/get_data/<data_id>', methods=['GET'])
 def get_data(data_id):
 
-    data = node_code.send_data(logger,redis, data_id)
+    data = node_code.send_data(logger, this_node, data_id)
 
     send_data = {
         "timestamp": str(datetime.datetime.now()),
         "data_id": data_id,
         "data": data
     }
+    logger.debug(f"Sending: {send_data}")
 
-    return jsonify(send_data)
+    return jsonify(send_data), 201
 
 ################################################################################
 
