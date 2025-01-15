@@ -110,11 +110,13 @@ def create_task():
     cur.execute(f"INSERT INTO task (code_id, data_id) VALUES ({code_id}, {data_id}) RETURNING id")
     task_id = cur.fetchone()[0]
     conn.commit()
+    cur.close()
 
     task_info = {
         "task_id": task_id,
         "code_id": code_id,
         "data_id": data_id,
+        "policy": policy,
         "node_name": "",
         "image": "",
         "tag": "",
@@ -125,28 +127,11 @@ def create_task():
         "cpu_cycles": ""
     }
 
-    task_info["image"], task_info["tag"] = master_code.get_code_image(code_id, conn, logger)
-
-    # Trigger evaluation of code, data and node
-    if policy == "earliest":
-        task_info = master_code.get_earliest_completion_time(task_info, conn, v1_core, logger)
-    elif policy == "fairness":
-        task_info = master_code.get_fairness(task_info, conn, v1_core, logger)
-    else:
-        return jsonify("{'error':'unkown policy'}", status=400)
-    
-    master_code.set_task(task_info, logger)
-    cur.execute(f"""UPDATE task 
-                SET node_id = node.id
-                    , time_scheduled=CURRENT_TIMESTAMP
-                    , execution_prediction_ms = {task_info['execution_time']}
-                    , completion_prediction_ms = {task_info['earliest_completion_time']}
-                FROM node
-                WHERE task.id = {task_id}
-                AND node.name = '{task_info['node_name']}';""")
-    conn.commit()
-    cur.close()
-    return jsonify("{'status':'scheduled'}")
+    schedule_task = master_code.evaluate_task(task_info, conn, v1_core, logger)
+    if schedule_task["status"]:
+        return jsonify(schedule_task), 201
+    elif schedule_task["error"]:
+        return jsonify(schedule_task), 400
 
 ################################################################################
 
