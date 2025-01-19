@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS node (
     cpu_speed INTEGER, -- MHz 10^6 Hz
     memory INTEGER,
     disk_size INTEGER,
-    used_cpu_cycles INTEGER DEFAULT 0
+    used_cpu_cycles BIGINT DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS code (

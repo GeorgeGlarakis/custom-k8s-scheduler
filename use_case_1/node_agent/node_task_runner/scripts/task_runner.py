@@ -31,12 +31,6 @@ def scheduler(logger, task_info):
                         "--task_id", str(job_info['TASK_ID']),
                         "--node_name", job_info['NODE_NAME']
                     ])
-        
-        conn = get_conn(logger)
-        cur = conn.cursor()
-        cur.execute(f"UPDATE task SET time_started = CURRENT_TIMESTAMP WHERE id = {task_info['task_id']};")
-        conn.commit()
-        cur.close()
 
         task_info["status"] = "running"
         redis.json().set(f"task:{task_info['task_id']}", Path.root_path(), task_info)
@@ -56,7 +50,6 @@ def watch_job_completion(logger, task_id, namespace='default'):
             if job.metadata.name == job_name:
                 if job.status.succeeded and job.status.succeeded >= 1:
                     task_info = redis.json().get(f"task:{task_id}")
-                    task_info["time_completed"] = str(datetime.now())
                     task_info["status"] = "completed"
                     redis.json().set(f"task:{task_id}", Path.root_path(), task_info)
 
@@ -64,7 +57,11 @@ def watch_job_completion(logger, task_id, namespace='default'):
 
                     conn = get_conn(logger)
                     cur = conn.cursor()
-                    cur.execute(f"UPDATE task SET time_completed = CURRENT_TIMESTAMP WHERE id = {task_id};")
+                    cur.execute(f"""UPDATE task 
+                                    SET time_started = '{task_info["time_started"]}',
+                                        time_completed = '{task_info["time_completed"]}'
+                                        WHERE id = {task_id};
+                                """)
                     cur.execute(f"UPDATE node SET used_cpu_cycles = used_cpu_cycles + {operation_counts} WHERE name = '{task_info['node_name']}';")
                     conn.commit()
                     cur.close()

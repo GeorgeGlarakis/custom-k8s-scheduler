@@ -303,6 +303,9 @@ def get_earliest_completion_time(task_info, conn, v1_core, logger):
                 migration_time = max(code_migration_time, data_migration_time)
                 completion_time = float(buffer_time) + float(execution_time) + float(migration_time)
 
+            this_node_info["execution_time"] = execution_time
+            this_node_info["completion_time"] = completion_time
+
             if earliest_completion_time is None or completion_time < earliest_completion_time:
                 node_selection = node
                 earliest_completion_time = completion_time
@@ -350,6 +353,7 @@ def get_fairness(task_info, conn, v1_core, logger):
 
         task_info = get_earliest_completion_time(task_info, conn, v1_core, logger)
         task_info['node_name'] = node_name_flag
+        task_info['earliest_completion_time'] = task_info['node_info'][node_name_flag]["completion_time"]
 
         return task_info
     

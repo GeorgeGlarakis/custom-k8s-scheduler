@@ -2,7 +2,7 @@
 
 source_directory="./assets"
 code_jobs=("$source_directory"/*.py)
-tag="1.1.3"
+tag="1.3.0"
 
 build_docker_image() {
     local code_path="$1"
@@ -15,7 +15,7 @@ build_docker_image() {
     code_name="${code_file%.*}"
     
     cat > Dockerfile-$code_name <<EOL
-        FROM python:3.13-bookworm
+        FROM python:3.13-alpine
 
         WORKDIR /code_job
 

@@ -1,9 +1,13 @@
 import os
+import sys
 import logging
 import redis
 from redis.commands.json.path import Path
+from datetime import datetime
 
 import code
+
+sys.setrecursionlimit(2147483646)
 
 class OperationCounter:
     def __init__(self):
@@ -20,24 +24,28 @@ class OperationCounter:
         self.operations += 1
 
 # Initialize environmental variables
-log_level = os.environ.get('LOG_LEVEL', 'DEBUG').upper()
+log_level = os.environ.get('LOG_LEVEL', 'INFO').upper()
 node_name = os.environ.get('NODE_NAME')
 task_id   = os.environ.get('TASK_ID')
 data_id   = os.environ.get('DATA_ID')
 namespace = os.environ.get('NAMESPACE', 'default')
 
-def sort_data(r, logger, counter):
+def sort_data(r, logger, counter, task_info):
     try:
         data = r.json().get(f"data:{data_id}")
         array = data["list"]
-        logger.debug(f"[task-{task_id}] Received data: {array}")
+        # logger.debug(f"[task-{task_id}] Received data: {array}")
+
+        task_info["time_started"] = str(datetime.now())
 
         sorted_array = code.main(array, counter)
-        logger.debug(f"[task-{task_id}] Sorted data: {sorted_array}")
+        # logger.debug(f"[task-{task_id}] Sorted data: {sorted_array}")
+
+        task_info["time_completed"] = str(datetime.now())
 
         r.json().set(f"data:{data_id}", Path.root_path(), {"list": sorted_array})
         logger.info(f"[task-{task_id}] Sorted data saved successfully.")
-        return True
+        return task_info
 
     except Exception as e:
         logger.error(f"Error: {e}")
@@ -50,13 +58,13 @@ if __name__ == "__main__":
 
     # Connect to Redis instance
     r = redis.StrictRedis(host=f'{node_name}-worker-redis-service.{namespace}.svc.cluster.local', port=6379)
-    logger.debug(f"[task-{task_id}] Connected to Redis at {node_name}.{namespace}.svc.cluster.local")
+    logger.debug(f"[task-{task_id}] Connected to Redis at {node_name}-worker-redis-service.{namespace}.svc.cluster.local")
 
     counter = OperationCounter()
-
-    sort_data(r, logger, counter)
-
     task_info = r.json().get(f"task:{task_id}")
+
+    task_info = sort_data(r, logger, counter, task_info)
+    
     task_info["operation_counts"] = {
         "comparisons": counter.comparisons,
         "swaps": counter.swaps,
