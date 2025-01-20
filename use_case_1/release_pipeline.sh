@@ -57,11 +57,11 @@
 # done
 
 # Kubernetes Init
-kubectl label node master node-role.kubernetes.io/worker=worker
+kubectl label node $(hostname -f) node-role.kubernetes.io/worker=worker
 
 NODES=$(kubectl get nodes -o jsonpath='{.items[*].metadata.name}')
 for NODE in $NODES; do
-    if [ "$NODE" = "master" ]; then
+    if [ "$NODE" = $(hostname -f) ]; then
         kubectl label nodes "$NODE" role=master --overwrite
     else
         kubectl label nodes "$NODE" role=worker --overwrite

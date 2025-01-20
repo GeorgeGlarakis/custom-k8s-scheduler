@@ -3,7 +3,7 @@
 docker build -t "glarakis99/init-data" .
 docker push "glarakis99/init-data:latest"
 
-NODE_NAME=node
+NODE_NAME=$(hostname -f)
 LIST_COUNT=10
 LIST_STEP=10000 # < 10000
 FUNCTION=same # scale | same
