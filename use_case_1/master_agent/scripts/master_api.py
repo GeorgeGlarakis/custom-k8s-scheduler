@@ -4,10 +4,21 @@ from flask_cors import CORS
 import psycopg2
 import os
 from datetime import datetime
-import json
 import logging
 
 import master_code
+
+job_creation_time_ms = os.environ.get('JOB_CREATION_TIME_MS', 6000)
+cpu_speed_devider = os.environ.get('CPU_SPEED_DEVIDER', 1)
+get_code_network_speed = os.environ.get('GET_CODE_NETWORK_SPEED', 1)
+get_data_network_speed = os.environ.get('GET_DATA_NETWORK_SPEED', 1)
+
+this_config = {
+    "job_creation_time_ms": int(job_creation_time_ms),
+    "cpu_speed_devider": int(cpu_speed_devider),
+    "get_code_network_speed": int(get_code_network_speed),
+    "get_data_network_speed": int(get_data_network_speed)
+}
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -123,32 +134,14 @@ def create_task():
         "execution_time": "",
         "status": "listed",
         "time_created": str(datetime.now()),
-        "time_completed": "",
-        "cpu_cycles": ""
+        "time_completed": ""
     }
 
-    schedule_task = master_code.evaluate_task(task_info, conn, v1_core, logger)
+    schedule_task = master_code.evaluate_task(this_config, task_info, conn, v1_core, logger)
     if schedule_task["status"]:
         return jsonify(schedule_task), 201
     elif schedule_task["error"]:
         return jsonify(schedule_task), 400
-
-################################################################################
-
-@app.route('/api/v1/test_pickle', methods=['GET'])
-def test_pickle():
-    body = request.get_json()
-    data_id = body['data_id']
-
-    test = {
-        "test": "this is a test",
-        "data_id": data_id,
-        "data": [1, 2, 3, 4, 5]
-    }
-
-    # pickled_data = pickle.dumps(test)
-    pickled_data = json.dumps(test)
-    return pickled_data
 
 ################################################################################
 

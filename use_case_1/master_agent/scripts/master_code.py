@@ -1,17 +1,12 @@
-from kubernetes import client, config, watch
-import random
 import redis
 from redis.commands.json.path import Path
 from redis.commands.search.field import TextField, NumericField
 from redis.commands.search.indexDefinition import IndexDefinition, IndexType
 from redis.commands.search.query import Query
-import psycopg2
 import time
 import os
-import logging
 import math
 import requests
-import migration_job
 
 # Initialize environmental variables
 this_node = os.environ.get('NODE_NAME', "master")
@@ -70,7 +65,7 @@ def set_task(task, logger):
         logger.error(f"Error setting task: {e}")
         return False
 
-def get_buffer_time(node_name, logger):
+def get_buffer_time(this_config, node_name, logger):
     try:
         node_r = wait_redis(logger, host=f'{node_name}-worker-redis-service')
         redis_init_index(node_r, logger)
@@ -86,7 +81,7 @@ def get_buffer_time(node_name, logger):
             pending_tasks = rs.search(q.paging(offset, 10))
 
             for task in pending_tasks.docs:
-                buffer_time += float(task["execution_time"])
+                buffer_time += float(task["execution_time"]) + this_config["job_creation_time_ms"]
             offset += 10
         return buffer_time
 
@@ -94,9 +89,9 @@ def get_buffer_time(node_name, logger):
         logger.error(f"Error calculating buffer time: {e}")
         return None
     
-def get_execution_time(node_name, code_id, data_id, conn, logger):
+def get_execution_time(this_config, node_name, code_id, data_id, conn, logger):
     try:
-        cpu_speed_devider = 1 # 1000000
+        cpu_speed_devider = this_config["cpu_speed_devider"]
         execution_time = 0
         cur = conn.cursor()
         cur.execute(f"""
@@ -134,14 +129,14 @@ def get_execution_time(node_name, code_id, data_id, conn, logger):
         logger.error(f"Error calculating execution time: {e}")
         return None
     
-def get_code_migration_time(node_id, code_id, conn, logger):
+def get_code_migration_time(this_config, node_id, code_id, conn, logger):
     try:
         cur = conn.cursor()
         cur.execute(f"SELECT size_mb FROM code WHERE id = {code_id};")
         code_size = cur.fetchone()[0]
         # cur.execute(f"SELECT latency_ms FROM node_latency WHERE node_from = 'master' AND node_to = {node_id};")
         # node_lat = cur.fetchone()[0]
-        network_speed = 1  # Mbps
+        network_speed = this_config["get_code_network_speed"]  # Mbps
 
         get_code_migration_time = code_size / network_speed
         cur.close()
@@ -151,7 +146,7 @@ def get_code_migration_time(node_id, code_id, conn, logger):
         logger.error(f"Error calculating code migration time: {e}")
         return None
     
-def get_data_migration_time(node_from, node_to, data_id, conn, logger):
+def get_data_migration_time(this_config, node_from, node_to, data_id, conn, logger):
     try:
         cur = conn.cursor()
         cur.execute(f"SELECT size_mb FROM data WHERE id = {data_id};")
@@ -162,7 +157,7 @@ def get_data_migration_time(node_from, node_to, data_id, conn, logger):
                     AND node_to = {node_to};
                     """)
         node_latency = cur.fetchone()[0]
-        network_speed = 1
+        network_speed = this_config["get_data_network_speed"]
 
         get_data_migration_time = ( data_size / network_speed ) + node_latency
 
@@ -210,6 +205,7 @@ def migrate_data(task_info, conn, logger):
         # cur.execute(f"""
         #     UPDATE node_info
         #     SET node_id = (SELECT id FROM node WHERE name = '{task_info['node_name']}')
+        #         , time_updated = CURRENT_TIMESTAMP
         #     WHERE pod_id = {task_info['data_id']} AND pod_type = 'data';
         #     """)
 
@@ -222,7 +218,7 @@ def migrate_data(task_info, conn, logger):
         return False
 
     
-def get_earliest_completion_time(task_info, conn, v1_core, logger):
+def get_earliest_completion_time(this_config, task_info, conn, v1_core, logger):
     try:
         earliest_completion_time = None
         node_selection = None
@@ -262,13 +258,13 @@ def get_earliest_completion_time(task_info, conn, v1_core, logger):
             cur.execute(f"SELECT id FROM node WHERE name = '{node}';")
             node_id = cur.fetchone()[0]
             logger.debug(f"[task-{task_info['task_id']}][{node}] Node ID: {node_id}")
-            buffer_time = get_buffer_time(node, logger)
+            buffer_time = get_buffer_time(this_config, node, logger)
             logger.debug(f"[task-{task_info['task_id']}][{node}] Buffer Time: {buffer_time}")
-            execution_time = get_execution_time(node, task_info['code_id'], task_info['data_id'], conn, logger)
+            execution_time = get_execution_time(this_config, node, task_info['code_id'], task_info['data_id'], conn, logger)
             logger.debug(f"[task-{task_info['task_id']}][{node}] Execution Time: {execution_time}")
             
             if not this_node_info["code_exists"]:
-                code_migration_time = get_code_migration_time(node_id, task_info['code_id'], conn, logger)
+                code_migration_time = get_code_migration_time(this_config, node_id, task_info['code_id'], conn, logger)
                 logger.debug(f"[task-{task_info['task_id']}][{node}] Code Migration Time: {code_migration_time}")
 
             if not this_node_info["data_exists"]:
@@ -282,7 +278,7 @@ def get_earliest_completion_time(task_info, conn, v1_core, logger):
                     LIMIT 1;
                     """)
                 node_from = cur.fetchone()[0]
-                data_migration_time = get_data_migration_time(node_from, node_id, task_info['data_id'], conn, logger)
+                data_migration_time = get_data_migration_time(this_config, node_from, node_id, task_info['data_id'], conn, logger)
                 logger.debug(f"[task-{task_info['task_id']}][{node}] Data Migration Time: {data_migration_time}")
 
             if this_node_info["code_exists"] and this_node_info["data_exists"]:
@@ -303,6 +299,7 @@ def get_earliest_completion_time(task_info, conn, v1_core, logger):
                 migration_time = max(code_migration_time, data_migration_time)
                 completion_time = float(buffer_time) + float(execution_time) + float(migration_time)
 
+            completion_time += this_config["job_creation_time_ms"]
             this_node_info["execution_time"] = execution_time
             this_node_info["completion_time"] = completion_time
 
@@ -328,7 +325,7 @@ def get_earliest_completion_time(task_info, conn, v1_core, logger):
         logger.error(f"[task-{task_info['task_id']}] Error evaluating task: {e}")
         return e
     
-def get_fairness(task_info, conn, v1_core, logger):
+def get_fairness(this_config, task_info, conn, v1_core, logger):
     try:
         cur = conn.cursor()
         cur.execute(f"""SELECT name, used_cpu_cycles FROM node;""")
@@ -351,7 +348,7 @@ def get_fairness(task_info, conn, v1_core, logger):
 
         cur.close()
 
-        task_info = get_earliest_completion_time(task_info, conn, v1_core, logger)
+        task_info = get_earliest_completion_time(this_config, task_info, conn, v1_core, logger)
         task_info['node_name'] = node_name_flag
         task_info['earliest_completion_time'] = task_info['node_info'][node_name_flag]["completion_time"]
 
@@ -362,16 +359,16 @@ def get_fairness(task_info, conn, v1_core, logger):
         return e
 
 
-def evaluate_task(task_info, conn, v1_core, logger):
+def evaluate_task(this_config, task_info, conn, v1_core, logger):
     try:
         cur = conn.cursor()
 
         task_info["image"], task_info["tag"] = get_code_image(task_info["code_id"], conn, logger)
 
         if task_info["policy"] == "earliest":
-            task_info = get_earliest_completion_time(task_info, conn, v1_core, logger)
+            task_info = get_earliest_completion_time(this_config, task_info, conn, v1_core, logger)
         elif task_info["policy"] == "fairness":
-            task_info = get_fairness(task_info, conn, v1_core, logger)
+            task_info = get_fairness(this_config, task_info, conn, v1_core, logger)
         else:
             return {'error':'unkown policy'}
         
