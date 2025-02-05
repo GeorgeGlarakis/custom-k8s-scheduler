@@ -65,7 +65,7 @@ def set_task(task, logger):
         logger.error(f"Error setting task: {e}")
         return False
 
-def get_buffer_time(this_config, node_name, logger):
+def get_buffer_time(this_config, node_name, conn, logger):
     try:
         node_r = wait_redis(logger, host=f'{node_name}-worker-redis-service')
         redis_init_index(node_r, logger)
@@ -77,11 +77,13 @@ def get_buffer_time(this_config, node_name, logger):
         buffer_time = 0
         offset = 0
 
+        job_creation_time = calculate_buffer(this_config, node_name, conn, logger)
+
         while offset < total_results:
             pending_tasks = rs.search(q.paging(offset, 10))
 
             for task in pending_tasks.docs:
-                buffer_time += float(task["execution_time"]) + this_config["job_creation_time_ms"]
+                buffer_time += float(task["execution_time"]) + float(job_creation_time)
             offset += 10
         return buffer_time
 
@@ -98,6 +100,7 @@ def get_execution_time(this_config, node_name, code_id, data_id, conn, logger):
             SELECT cpu_speed FROM node
             WHERE name = '{node_name}';""")
         cpu_speed = cur.fetchone()[0]
+        cpu_speed_devider = this_config["cpu_speed_devider"] * cpu_speed / 100
         logger.debug(f"[{node_name}] CPU Speed: {cpu_speed}")
         cur.execute(f"""
             SELECT complexity FROM code
@@ -115,7 +118,7 @@ def get_execution_time(this_config, node_name, code_id, data_id, conn, logger):
         if case == "O(n)".lower():
             execution_time = count_n / ( cpu_speed * cpu_speed_devider )
         elif case == "O(n^2)".lower():
-            execution_time = ( count_n ^ 2 ) / ( cpu_speed * cpu_speed_devider )
+            execution_time = ( count_n * count_n ) / ( cpu_speed * cpu_speed_devider * 10)
         elif case == "O(n*log(n))".lower():
             execution_time = ( count_n * math.log(count_n) ) / ( cpu_speed * cpu_speed_devider )
         else:
@@ -167,6 +170,29 @@ def get_data_migration_time(this_config, node_from, node_to, data_id, conn, logg
     except Exception as e:
         logger.error(f"Error calculating data migration time: {e}")
         return None
+    
+def calculate_buffer(this_config, node_name, conn, logger):
+   # Configuration parameters
+   cpu_max = 1000
+   cpu_min = 100
+   buffer_min = this_config["job_creation_time_min"]
+   buffer_max = this_config["job_creation_time_max"]
+
+   try:
+       cur = conn.cursor()
+       cur.execute(f"""
+           SELECT cpu_speed FROM node
+           WHERE name = '{node_name}';
+           """)
+       cpu_speed = cur.fetchone()[0]
+
+       # Linear interpolation
+       buffer = buffer_min + (buffer_max - buffer_min) * (cpu_max - cpu_speed) / (cpu_max - cpu_min)
+       return buffer
+   
+   except Exception as e:
+       logger.error(f"Error calculating buffer time: {e}")
+       return None
     
 def migrate_data(task_info, conn, logger):
     try:
@@ -258,7 +284,7 @@ def get_earliest_completion_time(this_config, task_info, conn, v1_core, logger):
             cur.execute(f"SELECT id FROM node WHERE name = '{node}';")
             node_id = cur.fetchone()[0]
             logger.debug(f"[task-{task_info['task_id']}][{node}] Node ID: {node_id}")
-            buffer_time = get_buffer_time(this_config, node, logger)
+            buffer_time = get_buffer_time(this_config, node, conn, logger)
             logger.debug(f"[task-{task_info['task_id']}][{node}] Buffer Time: {buffer_time}")
             execution_time = get_execution_time(this_config, node, task_info['code_id'], task_info['data_id'], conn, logger)
             logger.debug(f"[task-{task_info['task_id']}][{node}] Execution Time: {execution_time}")
@@ -288,7 +314,8 @@ def get_earliest_completion_time(this_config, task_info, conn, v1_core, logger):
             elif this_node_info["code_exists"] and not this_node_info["data_exists"]:
                 # Calculate Code Time
                 ## Buffer Time + Data Migration Time + Execution Time
-                completion_time = float(buffer_time) + float(execution_time) + float(data_migration_time)
+                waiting_time = max(float(buffer_time), float(data_migration_time))
+                completion_time = float(execution_time) + waiting_time
             elif not this_node_info["code_exists"] and this_node_info["data_exists"]:
                 # Calculate Data Time
                 ## Buffer Time + Fetch Image + Execution Time
@@ -296,10 +323,10 @@ def get_earliest_completion_time(this_config, task_info, conn, v1_core, logger):
             else:
                 # Calculate Buffer Time
                 ## Buffer Time + max( Fetch Image + Data Migration Time ) + Execution Time
-                migration_time = max(code_migration_time, data_migration_time)
-                completion_time = float(buffer_time) + float(execution_time) + float(migration_time)
+                waiting_time = max(float(buffer_time), float(data_migration_time))
+                completion_time = float(execution_time) + float(code_migration_time) + waiting_time
 
-            completion_time += this_config["job_creation_time_ms"]
+            completion_time += calculate_buffer(this_config, node, conn, logger)
             this_node_info["execution_time"] = execution_time
             this_node_info["completion_time"] = completion_time
 
@@ -314,7 +341,7 @@ def get_earliest_completion_time(this_config, task_info, conn, v1_core, logger):
         logger.debug(f"[task-{task_info['task_id']}] Node Selection: {node_selection}")
         task_info['node_name'] = node_selection
         logger.debug(f"[task-{task_info['task_id']}] Execution Time: {execution_time}")
-        task_info['execution_time'] = str(execution_time)
+        task_info['execution_time'] = str(node_info[node_selection]["execution_time"])
         logger.debug(f"[task-{task_info['task_id']}] Earliest Completion Time: {earliest_completion_time}")
         task_info['earliest_completion_time'] = str(earliest_completion_time)
 
@@ -350,6 +377,7 @@ def get_fairness(this_config, task_info, conn, v1_core, logger):
 
         task_info = get_earliest_completion_time(this_config, task_info, conn, v1_core, logger)
         task_info['node_name'] = node_name_flag
+        task_info['execution_time'] = task_info['node_info'][node_name_flag]["execution_time"]
         task_info['earliest_completion_time'] = task_info['node_info'][node_name_flag]["completion_time"]
 
         return task_info
@@ -385,7 +413,11 @@ def evaluate_task(this_config, task_info, conn, v1_core, logger):
                 WHERE name = '{task_info['node_name']}';
                 """)
             conn.commit()
-        
+
+        cur.execute(f"""SELECT cpu_speed FROM node WHERE name = '{task_info['node_name']}';""")
+        node_cpu = cur.fetchone()[0]
+        task_info["node_cpu"] = f"{node_cpu}m"
+
         if set_task(task_info, logger):
             cur.execute(f"""
                 UPDATE task 

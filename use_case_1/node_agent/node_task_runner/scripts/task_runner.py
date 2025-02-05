@@ -21,6 +21,7 @@ def scheduler(logger, task_info):
             'DATA_ID'    : task_info["data_id"],
             'TASK_ID'    : task_info["task_id"],
             'NODE_NAME'  : task_info["node_name"],
+            'NODE_CPU'   : task_info["node_cpu"]
         }
 
         subprocess.run(["python3", "code_job.py", 
@@ -29,7 +30,8 @@ def scheduler(logger, task_info):
                         "--image_tag", job_info['IMAGE_TAG'], 
                         "--data_id", str(job_info['DATA_ID']),
                         "--task_id", str(job_info['TASK_ID']),
-                        "--node_name", job_info['NODE_NAME']
+                        "--node_name", job_info['NODE_NAME'],
+                        "--node_cpu", str(job_info['NODE_CPU'])
                     ])
 
         task_info["status"] = "running"
@@ -54,6 +56,7 @@ def watch_job_completion(logger, task_id, namespace='default'):
                     redis.json().set(f"task:{task_id}", Path.root_path(), task_info)
 
                     operation_counts = task_info["operation_counts"]["total_operations"]
+                    logger.debug(f"[task-{task_id}] Operation Counts: {operation_counts}")
 
                     conn = get_conn(logger)
                     cur = conn.cursor()
@@ -62,7 +65,8 @@ def watch_job_completion(logger, task_id, namespace='default'):
                                         time_completed = '{task_info["time_completed"]}'
                                         WHERE id = {task_id};
                                 """)
-                    cur.execute(f"UPDATE node SET used_cpu_cycles = used_cpu_cycles + {operation_counts} WHERE name = '{task_info['node_name']}';")
+                    cur.execute(f"UPDATE node SET used_cpu_cycles = used_cpu_cycles + {int(operation_counts/1000000)} WHERE name = '{task_info['node_name']}';")
+                    logger.debug(f"[task-{task_id}] update db")
                     conn.commit()
                     cur.close()
 

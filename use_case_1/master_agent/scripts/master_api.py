@@ -8,16 +8,18 @@ import logging
 
 import master_code
 
-job_creation_time_ms = os.environ.get('JOB_CREATION_TIME_MS', 6000)
+job_creation_time_min = os.environ.get('JOB_CREATION_TIME_MIN', 50)
+job_creation_time_max = os.environ.get('JOB_CREATION_TIME_MAX', 100)
 cpu_speed_devider = os.environ.get('CPU_SPEED_DEVIDER', 1)
 get_code_network_speed = os.environ.get('GET_CODE_NETWORK_SPEED', 1)
 get_data_network_speed = os.environ.get('GET_DATA_NETWORK_SPEED', 1)
 
 this_config = {
-    "job_creation_time_ms": int(job_creation_time_ms),
     "cpu_speed_devider": int(cpu_speed_devider),
     "get_code_network_speed": int(get_code_network_speed),
-    "get_data_network_speed": int(get_data_network_speed)
+    "get_data_network_speed": int(get_data_network_speed),
+    "job_creation_time_min": int(job_creation_time_min),
+    "job_creation_time_max": int(job_creation_time_max)
 }
 
 # Initialize logger

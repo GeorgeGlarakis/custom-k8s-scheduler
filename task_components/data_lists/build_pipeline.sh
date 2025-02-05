@@ -1,5 +1,7 @@
 #!/bin/bash
 
+kubectl delete job init-data
+
 docker build -t "glarakis99/init-data" .
 docker push "glarakis99/init-data:latest"
 

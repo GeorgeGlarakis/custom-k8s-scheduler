@@ -1,10 +1,11 @@
 #!/bin/bash
 
 MASTER=$(kubectl get nodes -l role=master -o jsonpath='{.items[*].metadata.name}')
-JOB_CREATION_TIME_MS=6200
+JOB_CREATION_TIME_MIN=500
+JOB_CREATION_TIME_MAX=1000
 CPU_SPEED_DEVIDER=1
 GET_CODE_NETWORK_SPEED=1
-GET_DATA_NETWORK_SPEED=1
+GET_DATA_NETWORK_SPEED=1000
 
 cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
@@ -35,8 +36,10 @@ spec:
           value: $MASTER
         - name: SCHEDULER_NAME
           value: $SCHEDULER_NAME
-        - name: JOB_CREATION_TIME_MS
-          value: "$JOB_CREATION_TIME_MS"
+        - name: JOB_CREATION_TIME_MIN
+          value: "$JOB_CREATION_TIME_MIN"
+        - name: JOB_CREATION_TIME_MAX
+          value: "$JOB_CREATION_TIME_MAX"
         - name: CPU_SPEED_DEVIDER
           value: "$CPU_SPEED_DEVIDER"
         - name: GET_CODE_NETWORK_SPEED

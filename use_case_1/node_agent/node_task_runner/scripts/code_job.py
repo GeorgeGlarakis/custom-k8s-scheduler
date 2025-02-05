@@ -33,7 +33,15 @@ def create_job_object(job_info, logger):
                         )
                     )
                 )
-            ]
+            ],
+            resources = client.V1ResourceRequirements(
+                requests = {
+                    "cpu" : f"{job_info['NODE_CPU']}"
+                },
+                limits = {
+                    "cpu" : f"{job_info['NODE_CPU']}"
+                }
+            )
         )
         # Configure nodeAffinity
         affinity = client.V1Affinity(
@@ -127,6 +135,7 @@ if __name__ == '__main__':
     parser.add_argument('--data_id',    dest='data_id',     help='Data ID',   required=True)
     parser.add_argument('--node_name',  dest='node_name',   help='Node Name',   required=True)
     parser.add_argument('--task_id',    dest='task_id',     help='Task ID',   required=True)
+    parser.add_argument('--node_cpu',   dest='node_cpu',    help='Node CPU',   required=True)
     args = parser.parse_args()
 
     job_info = {
@@ -136,8 +145,9 @@ if __name__ == '__main__':
         'DATA_ID'    : args.data_id,
         'TASK_ID'    : args.task_id,
         'NODE_NAME'  : args.node_name,
+        'NODE_CPU'   : args.node_cpu,
     }
 
     main(job_info)
 
-# python3 code_job.py --job_name=code-job --image_name=code_pod --image_tag=latest --data_id=1 --node_name=node-m02
+# python3 code_job.py --job_name=code-job --image_name=code_pod --image_tag=latest --data_id=1 --node_name=node-m02 --task_id=1 --node_cpu=1

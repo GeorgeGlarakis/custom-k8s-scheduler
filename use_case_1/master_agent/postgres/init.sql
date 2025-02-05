@@ -73,12 +73,6 @@ CREATE TABLE IF NOT EXISTS node_latency (
     latency_ms INTEGER NOT NULL DEFAULT 0
 );
 
-INSERT INTO code (name, image, tag, complexity, size_mb) VALUES
-('insertion-sort', 'code-job-insertion-sort', '1.1.0', 'O(n^2)', 991),
-('selection-sort', 'code-job-selection-sort', '1.1.0', 'O(n^2)', 991),
-('merge-sort', 'code-job-merge-sort', '1.1.0', 'O(n*log(n))', 991),
-('bubble-sort', 'code-job-bubble-sort', '1.1.0', 'O(n^2)', 991);
-
 INSERT INTO node (name, cpu_speed, memory, disk_size) VALUES
 ('master', 2, 16048, 100),
 ('worker-1', 1, 2048, 100);
