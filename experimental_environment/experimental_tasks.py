@@ -135,3 +135,26 @@ for task in task_list:
        "policy": task["policy"]
     }
     requests.post(url, json=body)
+
+
+################################################################################
+
+import requests
+from time import sleep
+url = "http://icelab-master-agent-service:8080/api/v1/task"
+
+for i in range(0, 20):
+    body = {
+       "code_id": 2,
+       "data_id": 170 - i,
+       "policy": "fairness"
+    }
+    requests.post(url, json=body)
+    sleep(30)
+
+body = {
+    "code_id": 2,
+    "data_id": 150 - 20,
+    "policy": "fairness"
+}
+requests.post(url, json=body)

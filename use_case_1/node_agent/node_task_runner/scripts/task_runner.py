@@ -65,7 +65,7 @@ def watch_job_completion(logger, task_id, namespace='default'):
                                         time_completed = '{task_info["time_completed"]}'
                                         WHERE id = {task_id};
                                 """)
-                    cur.execute(f"UPDATE node SET used_cpu_cycles = used_cpu_cycles + {int(operation_counts/1000000)} WHERE name = '{task_info['node_name']}';")
+                    cur.execute(f"UPDATE node SET used_cpu_cycles = used_cpu_cycles + {int(operation_counts/1000)} WHERE name = '{task_info['node_name']}';")
                     logger.debug(f"[task-{task_id}] update db")
                     conn.commit()
                     cur.close()

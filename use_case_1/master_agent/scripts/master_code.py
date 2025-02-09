@@ -355,23 +355,31 @@ def get_earliest_completion_time(this_config, task_info, conn, v1_core, logger):
 def get_fairness(this_config, task_info, conn, v1_core, logger):
     try:
         cur = conn.cursor()
-        cur.execute(f"""SELECT name, used_cpu_cycles FROM node;""")
-        nodes = cur.fetchall()
+        cur.execute(f"""SELECT name, total_cycles/total_speed AS prc
+                        FROM (
+                            SELECT name
+                            , ( used_cpu_cycles * 100.0 / SUM(used_cpu_cycles) OVER()) AS total_cycles
+                            , ( cpu_speed  * 100.0 / SUM(cpu_speed) OVER()) AS total_speed
+                            FROM node
+                        )
+                        ORDER BY prc ASC;
+                    """)
+        node = cur.fetchall()[0]
 
-        node_name_flag = ""
-        node_used_cycles_flag = -1
-        for node in nodes:
-            node_name = node[0]
-            node_used_cycles = node[1]
+        node_name_flag = node[0]
+        # node_used_cycles_flag = -1
+        # for node in nodes:
+        #     node_name = node[0]
+        #     node_used_cycles = node[1]
 
-            if node_used_cycles_flag == -1:
-                node_name_flag = node_name
-                node_used_cycles_flag = node_used_cycles
-                continue
+        #     if node_used_cycles_flag == -1:
+        #         node_name_flag = node_name
+        #         node_used_cycles_flag = node_used_cycles
+        #         continue
             
-            if node_used_cycles < node_used_cycles_flag:
-                node_name_flag = node_name
-                node_used_cycles_flag = node_used_cycles
+        #     if node_used_cycles < node_used_cycles_flag:
+        #         node_name_flag = node_name
+        #         node_used_cycles_flag = node_used_cycles
 
         cur.close()
 
